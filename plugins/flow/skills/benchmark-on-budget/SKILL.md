@@ -1,6 +1,6 @@
 ---
 name: benchmark-on-budget
-description: Compare models, OCR engines or pipeline variants on a fixed gold set under a stated budget, and report accuracy, latency and cost per item with a recommendation. Use when the user asks to "run the evals on <model>", "see how it stacks up against <baseline>", "benchmark against", wants to compare extraction or OCR quality, or needs a full run on rented GPUs sized to a deadline and a budget.
+description: Compare models, OCR engines or pipeline variants on a fixed gold set under a stated budget, and report accuracy, latency and cost per item with a recommendation. Use when the user asks to "run the evals on X", "see how it stacks up against Y", "benchmark against", wants to compare extraction or OCR quality, or needs a full run on rented GPUs sized to a deadline and a budget.
 ---
 
 # Benchmark on a budget

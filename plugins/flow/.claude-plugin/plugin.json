@@ -1,9 +1,16 @@
 {
   "name": "flow",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Workflow skills and agent definitions for running Claude Code as an orchestrator of implementer and verifier agents",
   "author": {
     "name": "Radu Ciocan"
   },
-  "keywords": ["orchestration", "subagents", "github", "worktrees", "smoke-test", "workflow"]
+  "keywords": [
+    "orchestration",
+    "subagents",
+    "github",
+    "worktrees",
+    "smoke-test",
+    "workflow"
+  ]
 }
