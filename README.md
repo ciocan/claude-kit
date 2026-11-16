@@ -113,3 +113,8 @@ claude plugin validate .
 claude plugin validate plugins/flow
 claude plugin validate plugins/unslop
 ```
+
+## Licence
+
+MIT, see `LICENSE`. The `unslop` skill is adapted from pstack, also MIT. Its notice is in
+`plugins/unslop/NOTICE.md`.

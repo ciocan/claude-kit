@@ -12,5 +12,6 @@
     "worktrees",
     "smoke-test",
     "workflow"
-  ]
+  ],
+  "license": "MIT"
 }

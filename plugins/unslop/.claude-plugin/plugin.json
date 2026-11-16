@@ -5,5 +5,10 @@
   "author": {
     "name": "Radu Ciocan"
   },
-  "keywords": ["writing", "style", "hooks"]
+  "keywords": [
+    "writing",
+    "style",
+    "hooks"
+  ],
+  "license": "MIT"
 }
