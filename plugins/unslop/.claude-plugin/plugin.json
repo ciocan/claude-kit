@@ -1,0 +1,9 @@
+{
+  "name": "unslop",
+  "version": "0.1.0",
+  "description": "Strip AI tells from prose and keep the rules in context with a per-prompt reminder",
+  "author": {
+    "name": "Radu Ciocan"
+  },
+  "keywords": ["writing", "style", "hooks"]
+}

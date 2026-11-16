@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-kit",
+  "metadata": {
+    "description": "Orchestrator workflows for Claude Code: issue to merged PR with implementer and verifier agents, grilling to epics, smoke tests, overnight runs, plus the unslop writing rules"
+  },
+  "owner": {
+    "name": "Radu Ciocan"
+  },
+  "plugins": [
+    {
+      "name": "flow",
+      "description": "Sixteen workflow skills and three agent definitions for running Claude Code as an orchestrator: deploy agents on issues, verify and smoke test, ship PRs, hand over for the night, report status, keep state across compaction",
+      "source": "./plugins/flow"
+    },
+    {
+      "name": "unslop",
+      "description": "Writing rules that strip AI tells from every reply, commit message, PR body and doc, with a per-prompt reminder hook so the rules survive compaction",
+      "source": "./plugins/unslop"
+    }
+  ]
+}

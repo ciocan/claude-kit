@@ -1,0 +1,117 @@
+{
+  "marketplaces": {
+    "minimal": [
+      { "name": "claude-plugins-official", "source": "anthropics/claude-plugins-official" }
+    ],
+    "full": [
+      { "name": "claude-plugins-official", "source": "anthropics/claude-plugins-official" },
+      { "name": "impeccable", "source": "pbakaus/impeccable" },
+      { "name": "signoz-skills", "source": "SigNoz/agent-skills" },
+      { "name": "worktrunk", "source": "max-sixty/worktrunk" },
+      { "name": "cloudflare", "source": "cloudflare/skills" }
+    ]
+  },
+  "plugins": {
+    "minimal": [
+      "code-review@claude-plugins-official",
+      "mattpocock-skills@claude-plugins-official"
+    ],
+    "full": [
+      "code-review@claude-plugins-official",
+      "mattpocock-skills@claude-plugins-official",
+      "superpowers@claude-plugins-official",
+      "feature-dev@claude-plugins-official",
+      "commit-commands@claude-plugins-official",
+      "code-simplifier@claude-plugins-official",
+      "frontend-design@claude-plugins-official",
+      "skill-creator@claude-plugins-official",
+      "plugin-dev@claude-plugins-official",
+      "hookify@claude-plugins-official",
+      "remember@claude-plugins-official",
+      "security-guidance@claude-plugins-official",
+      "claude-code-setup@claude-plugins-official",
+      "agent-sdk-dev@claude-plugins-official",
+      "playground@claude-plugins-official",
+      "playwright@claude-plugins-official",
+      "chrome-devtools-mcp@claude-plugins-official",
+      "desktop-commander@claude-plugins-official",
+      "typescript-lsp@claude-plugins-official",
+      "pyright-lsp@claude-plugins-official",
+      "gopls-lsp@claude-plugins-official",
+      "rust-analyzer-lsp@claude-plugins-official",
+      "vercel@claude-plugins-official",
+      "convex@claude-plugins-official",
+      "cloudflare@claude-plugins-official",
+      "posthog@claude-plugins-official",
+      "resend@claude-plugins-official",
+      "brightdata-plugin@claude-plugins-official",
+      "data-engineering@claude-plugins-official",
+      "qdrant-skills@claude-plugins-official",
+      "legalzoom@claude-plugins-official",
+      "signoz@signoz-skills",
+      "worktrunk@worktrunk",
+      "zero-trust-audit-team@anthropic-plugin-directory"
+    ]
+  },
+  "skills": {
+    "minimal": [
+      { "via": "agent-native", "names": ["efficient-fable", "quick-recap", "stay-within-limits"] },
+      { "via": "skills-cli", "source": "mattpocock/skills", "names": ["to-issues", "to-prd"] }
+    ],
+    "full": [
+      {
+        "via": "agent-native",
+        "names": [
+          "efficient-fable",
+          "efficient-frontier",
+          "quick-recap",
+          "stay-within-limits",
+          "plow-ahead",
+          "plan-arbiter",
+          "agent-watchdog",
+          "read-the-damn-docs"
+        ]
+      },
+      { "via": "agent-native-core", "names": ["visual-plan", "visual-recap", "visualize-repo"] },
+      {
+        "via": "skills-cli",
+        "source": "mattpocock/skills",
+        "names": ["to-issues", "to-prd", "write-a-skill", "diagnose", "caveman", "zoom-out"]
+      },
+      { "via": "skills-cli", "source": "vercel-labs/skills", "names": ["find-skills"] },
+      { "via": "skills-cli", "source": "pbakaus/impeccable", "names": ["impeccable"] },
+      { "via": "skills-cli", "source": "ogulcancelik/herdr", "names": ["herdr"] },
+      {
+        "via": "skills-cli",
+        "source": "elastic/agent-skills",
+        "names": [
+          "kibana-alerting-rules",
+          "kibana-audit",
+          "kibana-dashboards",
+          "kibana-streams",
+          "kibana-vega",
+          "observability-logs-search"
+        ]
+      },
+      {
+        "via": "skills-cli",
+        "source": "elevenlabs/skills",
+        "names": [
+          "agents",
+          "dubbing",
+          "music",
+          "onboarding",
+          "realtime",
+          "setup-api-key",
+          "sound-effects",
+          "speech-engine",
+          "speech-to-text",
+          "text-to-speech",
+          "update-skills-from-changelog",
+          "voice-changer",
+          "voice-isolator"
+        ]
+      }
+    ]
+  }
+}
