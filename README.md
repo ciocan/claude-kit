@@ -27,6 +27,12 @@ bootstrap/install.sh --apply              # minimal profile
 bootstrap/install.sh --profile full --apply
 ```
 
+## New here?
+
+After installing, open Claude Code in one of your repositories and run `/flow:start`. It checks
+your setup and proposes a small first task. [The guide](docs/guide.md) walks through a first
+session, the phrases to use, and the habits that keep the workflow cheap.
+
 ## The `flow` plugin
 
 One loop, the same for every unit of work: issue, worktree, implementer, fresh reviewer, smoke
@@ -34,6 +40,7 @@ test, PR, merge, close. The main session orchestrates and stays out of the code.
 
 | Skill | Say this | What it does |
 |---|---|---|
+| `start` | `/flow:start`, "where do I start?" | Checks your setup, explains the loop, proposes a first task |
 | `orchestrate` | "deploy an agent", "same machinery", "you manage everything from here" | Runs the loop with implementer and verifier agents, three slots kept full |
 | `grill-to-epic` | "/grilling ...", "q3 ..., agree with the rest", "file the epic" | Numbered questions with a recommendation each, then an epic with buildable sub-issues |
 | `ship-pr` | "commit and push", "file the pr", "merge it", "close the issue" | Commit to merged PR with guards against a bad CI verdict or a stale branch |

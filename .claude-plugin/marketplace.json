@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "flow",
-      "description": "Sixteen workflow skills and three agent definitions for running Claude Code as an orchestrator: deploy agents on issues, verify and smoke test, ship PRs, hand over for the night, report status, keep state across compaction",
+      "description": "Workflow skills and three agent definitions for running Claude Code as an orchestrator: deploy agents on issues, verify and smoke test, ship PRs, hand over for the night, report status, keep state across compaction",
       "source": "./plugins/flow"
     },
     {
