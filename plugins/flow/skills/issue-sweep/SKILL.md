@@ -42,6 +42,12 @@ behind it.
   epic's next slice, then follow-ups. Use the repository's priority label when it has one.
 - Mark which ready items touch separate parts of the code and can run in parallel.
 
+## Reports from outside
+
+A bug report from a user or a partner gets a verdict first: valid, not a bug, or cannot
+reproduce, with the evidence. Answer in the reporter's language. When the user asks for it,
+comment how the bug should be fixed without writing the fix.
+
 ## Output
 
 A numbered list per section, so the user can answer "close 1 to 4, merge 6, start 7 and 9". When

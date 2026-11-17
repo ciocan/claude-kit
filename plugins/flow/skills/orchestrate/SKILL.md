@@ -70,7 +70,7 @@ shape of the report. Ask for the report as the agent's final message.
 
 After every merge, launch and hand-back, update the state note (`save-state`). Each recap says what
 merged, what is in flight, what you started and why, and what waits for the user
-(`status-report`).
+(`status-report`). When the work will outlast the session, follow `long-haul` as well.
 
 ## Before the first launch
 

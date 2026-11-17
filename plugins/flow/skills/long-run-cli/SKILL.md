@@ -15,6 +15,9 @@ Anything that can run for more than a few seconds follows this contract.
   failed). A run with several lanes shows a line per lane.
 - Report an honest rate. Count the items that did work. Skips that cost nothing inflate the rate
   and wreck the ETA.
+- Show what this run did apart from what was already done. "22 of 899,116" does not say whether
+  22 were fetched now or last week.
+- Keep the line width stable. A bar that jumps or flickers cannot be read.
 - When stderr is not a terminal, print a plain line every so often. A progress bar renders nothing
   through a pipe, and cron and systemd logs need lines. Offer `--progress auto|live|plain`.
 
@@ -24,6 +27,9 @@ Anything that can run for more than a few seconds follows this contract.
 - Ctrl-C prints the command that resumes.
 - Work incrementally by default. A full rescan is a flag, not the normal path.
 - Anything that writes has `--dry-run`. Add `--status` when a run can be inspected from outside.
+- When the source blocks or rate-limits the run, pause and resume without help. The length of the
+  pause is a flag.
+- A tool that must run on several machines keeps its state in a shared store, not in local files.
 
 ## Speed
 
@@ -35,6 +41,13 @@ Anything that can run for more than a few seconds follows this contract.
   change.
 - When asked to make something faster, read the code for what can overlap before answering, offer
   the parallel form first, and report wall-clock time before and after.
+
+## Knowing where a corpus stands
+
+- A `status` verb shows, per stage: done, left, failed, the rate and the ETA. As a table, and as
+  JSON behind a flag.
+- A dashboard for a long ingest is built through the monitoring tool's API and committed as JSON
+  next to the code. Its panels answer the same four questions: done, left, rate, ETA.
 
 ## Runbook, in the same change
 

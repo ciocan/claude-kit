@@ -43,6 +43,9 @@ Say in the PR which specs ran, with counts, and that the full suite was left to 
 - Run a pipeline change on a real slice. Compare counts before and after, and check the records
   the issue cites.
 - After a deploy, smoke the deployed URL as well as the local build.
+- Smoke at the scale that matters. A pipeline change is tried on a slice large enough to meet the
+  rare shapes, with live data. Say how large the slice was.
+- Finish the smoke of one item before starting the next.
 - Fixtures for values that cross stores need full precision. A timestamp on a whole second hides
   a truncation between a microsecond store and a millisecond one.
 
@@ -54,5 +57,6 @@ down plainly. A number nobody could measure is not verified.
 
 ## Afterwards
 
-Stop the server you started, by pid. Remove test databases, containers and stand-in endpoints.
+Stop the server you started, by pid. Remove test databases, containers and stand-in endpoints,
+and whatever the smoke itself created: test rows, uploaded files, generated output.
 See `cleanup`.

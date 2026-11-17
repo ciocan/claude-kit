@@ -21,7 +21,9 @@ description: Set up or audit a repository's agent instruction file (AGENTS.md, w
 ## A new repository
 
 1. Look at the owner's other repositories first and copy their choices. Do not invent a stack or
-   a layout when a reference project exists. Say what you reused and from where.
+   a layout when a reference project exists. Say what you reused and from where. When a sibling
+   repository already solved the same problem, port its exact shape, cite the commit, and add a
+   test that fails if the fix is undone.
 2. Start from [references/AGENTS.template.md](references/AGENTS.template.md) and fill the
    placeholders. Stack choices and gate commands are in
    [references/stack-defaults.md](references/stack-defaults.md).

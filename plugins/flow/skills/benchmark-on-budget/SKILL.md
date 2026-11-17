@@ -14,6 +14,12 @@ description: Compare models, OCR engines or pipeline variants on a fixed gold se
 - Name the baselines: what runs in production today, and one commercial product when the user
   wants to know whether building beats buying.
 
+## The projection
+
+Before a long or paid run, measure the rate on a small sample and state three figures: hours for
+the whole corpus, cost, and the same for one or two other fleet sizes. For a hosting bill, give
+the cost at three traffic levels from the measured cost per request.
+
 ## Running it
 
 - Enforce the output schema with structured outputs. A free-text answer parsed afterwards measures
@@ -45,6 +51,21 @@ version in the repository's docs. Write a shorter version for a non-technical re
 Measured throughput gives the number of instances needed to finish by the deadline, and that
 gives the cost. Say both. When the credit on the account does not cover it, ask for the top-up
 before starting, never in the middle.
+
+## Rented instances
+
+- A name prefix per project, and a time to live on every instance.
+- Model weights on a persistent volume, and an install script for a new instance.
+- When several agents share one account, check which workspace is active before each command.
+- Pin the provider and the quantization when comparing hosted models. The same model name serves
+  different builds.
+
+## Evals of your own agent
+
+When the product contains an agent, every change to its prompts, tools or model reruns the eval
+set and must score at least as well as the previous run. Report the cost per answer as well. To
+find out why one production session went wrong, read its transcript: where it stalled, what it
+invented, which tool failed.
 
 ## At the end
 

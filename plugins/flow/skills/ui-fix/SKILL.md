@@ -31,6 +31,8 @@ description: Fix a layout, spacing, alignment or wording defect reported from a 
 
 ## Copy
 
+- Translated text reads the way a native speaker would write it. Rewrite word-for-word
+  translations.
 - Interface text is in the product's language. Code, comments, test titles and commit messages are
   in English.
 - Sales and landing pages say how the product works now. No dates of changes, no "now supports",

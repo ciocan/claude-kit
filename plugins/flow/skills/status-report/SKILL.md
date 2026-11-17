@@ -36,6 +36,8 @@ last report:
 - "What do you need from me?" gets part 5 only, complete. At bedtime, follow `overnight-handoff`.
 - "Is it done?" gets yes or no first, then what is left.
 - "Can I compact?" is a different question. Follow `save-state`.
+- "How is the goal progress?" on a long run is answered from the program note's top block and
+  the checks in its definition of done (`long-haul`).
 
 ## Rules
 

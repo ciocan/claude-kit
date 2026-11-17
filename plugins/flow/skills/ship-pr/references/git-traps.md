@@ -43,6 +43,12 @@ the head. Watch the checks, then merge by hand:
 gh pr checks <n> --watch && gh pr merge <n> --squash
 ```
 
+## A merge call that merges nothing
+
+`gh pr merge` on a pull request that is `CONFLICTING` can return without merging and without a
+clear error. Read `mergeable` before the call and the `MERGED` state after it. The merge train
+script in `long-haul` does both.
+
 ## Stacked PR after its base merged
 
 A force push that lands while the base branch is being deleted gets no CI run, and retargeting

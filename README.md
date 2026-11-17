@@ -3,10 +3,26 @@
 How I run Claude Code, packaged so it works on another machine or for another person. Two
 plugins and a bootstrap script.
 
-The skills were distilled from about 6,000 of my own prompts across 26 projects and 76 feedback
-notes that Claude recorded when I corrected it. Each skill answers a request I typed dozens of
-times, and each trap in the reference files cost a lost branch, a dead shell or a full disk at
-least once.
+## What it is based on
+
+Seven and a half months of daily work with Claude Code on two machines, from 3 April to
+17 November 2026. Measured, not estimated:
+
+| | |
+|---|---|
+| Pull requests merged | 2,188, in 39 repositories (31 private, 8 public) |
+| Commits co-authored by Claude | 8,444 |
+| Issues closed | 1,805 |
+| Prompts I typed | 12,418, in 1,010 sessions, on 185 days |
+| Agents launched | 2,621 in the transcripts still on disk, which reach back to 22 September |
+| Corrections Claude wrote down | 89 notes, among 462 memory notes |
+
+Of those prompts, 379 sent an agent to do the work, 331 asked for a smoke test, 114 opened a
+design grilling, 59 set a goal to run unattended, and 35 handed over for the night.
+
+Each skill answers a request I typed dozens of times. Each trap in the reference files cost a
+lost branch, a dead shell or a full disk at least once. What every number counts, and what it
+cannot tell apart, is in [docs/evidence.md](docs/evidence.md).
 
 ## Install
 
@@ -48,10 +64,14 @@ test, PR, merge, close. The main session orchestrates and stays out of the code.
 | `fresh-eyes` | "investigate without bias", "adversarial agent" | A clean-context agent re-diagnoses or tries to break the change |
 | `status-report` | "how is it so far?", "whats next?", "what do you need from me?" | Fifteen lines in a fixed order, measured now |
 | `overnight-handoff` | "I'm going to sleep", "you have the reins" | Clears blockers, records the mandate, queues work, writes the morning recap |
+| `long-haul` | "/goal ...", "do not stop until it is done and verified", "how is the goal progress?" | Runs a goal for days or weeks: a checkable goal, one program note, wake-ups and watchers, scripts for chains and merge trains |
 | `owner-scripts` | "what do I need to run?", "let me know what pastes are needed" | One paste per step, dry run by default |
 | `save-state` | "can I compact this session?", "write this to memory" | State, grant and decision notes that survive compaction |
 | `issue-sweep` | "any orphan issues?", "what can be merged?" | Closes done issues, lists mergeable PRs, ranks what is ready |
 | `research-to-gist` | "deploy agents to research", "write it to a gist" | Parallel researchers, abstract first, sources, a secret gist |
+| `data-anomaly` | "why is this value so high?", "why only 12,000?" | Traces a wrong number to the layer that produced it, fixes it there, repairs the rows |
+| `accuracy-loop` | "do another round", "do not stop until all cases are covered" | Sample, check, fix, repeat on a larger sample until a stated target holds |
+| `failed-run-triage` | "check all the failed ones and see what can be done" | Failures by cause, what can be retried, the command that reruns only those |
 | `benchmark-on-budget` | "run the evals on X", "how does it stack up against Y" | Gold set, budget up front, cost per item, instances shut down |
 | `long-run-cli` | "can it run faster?", "show progress", "what are the exact commands?" | Progress, resume, all cores, runbook in the same change |
 | `ui-fix` | a screenshot with a complaint | Fix in place, tokens, both themes, phone and desktop |
@@ -67,6 +87,10 @@ Reference files worth reading on their own:
 - `plugins/flow/skills/orchestrate/references/briefs.md`: fill-in briefs for four agent roles
 - `plugins/flow/skills/orchestrate/references/traps.md`: what went wrong and the guard for each
 - `plugins/flow/skills/ship-pr/references/git-traps.md`: squash, force push, stacked PRs, markers
+- `plugins/flow/skills/long-haul/references/stalls.md`: what stalled nine multi-day runs, with the
+  hours each cost
+- `plugins/flow/skills/long-haul/references/keeping-going.md`: what survives a restart, wake-ups,
+  watchers, and four scripts for unattended chains and merges
 - `plugins/flow/skills/repo-conventions/references/AGENTS.template.md`: a starter instruction file
 
 ## The `unslop` plugin
@@ -119,6 +143,7 @@ while building this kit. If one fails, the log names it and the rest still insta
 claude plugin validate .
 claude plugin validate plugins/flow
 claude plugin validate plugins/unslop
+tests/long-haul.sh          # 60 checks of the long-haul scripts, against a stub gh
 ```
 
 ## Licence

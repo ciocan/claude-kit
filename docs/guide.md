@@ -124,6 +124,74 @@ Claude works the sub-issues in waves of up to three agents and posts progress on
 your version of Claude Code has `/goal`, set one with an end state someone can check, for example
 `/goal complete epic 42, everything verified in the browser`.
 
+## Running for days or weeks
+
+Some goals outlast a session: a backfill with its fixes, a move from one data store to another, a
+backlog worked until it is empty. The loop stays the same. What changes is that the session is
+compacted, restarted and rate-limited along the way, and you are away for most of it.
+
+### Set up once
+
+1. **A goal that can be checked.** Name the checks, because the goal is judged only from what
+   appears in the conversation:
+
+   ```
+   /goal epic 42 is closed: every sub-issue merged, the gates green on main, the smoke passing
+   on production. Do not stop until it is all done and verified.
+   ```
+
+2. **A grant for the stretch.** "You have permission to commit, file prs and merge to dev for
+   this goal." Say what stays yours, usually production writes and anything that deletes.
+3. **A machine that stays on.** The session lives in a terminal on it. Run it under tmux or as a
+   background session on a server, and use Remote Control (`/rc`) to look in from a phone.
+4. **Auto mode.** A goal does not change the permission mode, and unattended turns need it. What
+   auto mode refuses comes back to you as commands to paste.
+
+### What Claude keeps
+
+- One program note per goal: the goal in your words, the definition of done, your grants, the
+  holds, and a dated log. It is what every restarted session reads first.
+- A paste file with the commands only you can run, numbered, in order.
+- Long jobs started detached, each ending in a marker line, each with a watcher or a scheduled
+  check. Four scripts ship for this: detached runs, follow-ups, chains of steps, and a merge
+  train that merges PRs in order and stops at the first doubt.
+
+### Your part
+
+| When | You type | You get |
+|---|---|---|
+| Morning | "how is the goal progress?" | What landed overnight, what failed and why, the pastes you owe in order, decisions by size |
+| Any time | "how long until the goal is complete?", "what slows it down?" | An ETA from the measured rate, and the bottleneck with a number |
+| Any time | "what else can run in parallel?" | Free slots filled from the queue |
+| Evening | "I'm going to sleep, anything needed from me?" | Every blocker now, then one plan for the night |
+| After a limit | "continue, the limits are reset" | Agents resumed with their context |
+| Before `/compact` | "can I compact this session?" | Yes or no, after the state is written down |
+| After a restart | "continue" | The session re-anchors from the note, restarts its watchers, and goes on |
+
+### What to expect
+
+The kit's rules for long runs come from nine goals that ran between half a day and nine days. Code
+was rarely what stopped them. The common stalls were a command only the owner could run, sitting
+for six to ten hours, a usage limit that killed every agent, and a session that went idle
+because the watcher it relied on had died. So the three things that keep a long run moving are
+yours: answer the evening question, run a paste when the push arrives, keep the machine on.
+
+Some limits no skill removes:
+
+- A reboot ends the session and every job with it. Afterwards run `claude --resume` and type
+  "continue".
+- While background work runs, a goal checks in a few times and then waits for you. If you find
+  the session idle with work pending, type "continue".
+- Scheduled tasks inside a session expire after seven days.
+- Work that must run with the machine off belongs in a cloud scheduled task, which starts from a
+  fresh clone and sees none of your local state.
+
+The mechanics are in
+[keeping going](../plugins/flow/skills/long-haul/references/keeping-going.md), the note
+template in [program note](../plugins/flow/skills/long-haul/references/program-note.md), and the
+full list of stalls with their cost in
+[stalls](../plugins/flow/skills/long-haul/references/stalls.md).
+
 ## The phrases
 
 | You say | What you get |
@@ -136,9 +204,13 @@ your version of Claude Code has `/goal`, set one with an end state someone can c
 | "make sure it's smoke tested" / "how was it verified?" | the real app is run, and you see the commands and output |
 | "file the pr" / "merge it" / "close the issue" | the shipping steps, with guards |
 | "investigate without bias" | a fresh agent that has not seen the first diagnosis |
+| "why is this number so high?" | the value traced to the layer that produced it, fixed there, existing rows repaired |
+| "check the failed ones and see what can be done" | failures by cause, and the command that reruns only those |
+| "do another round" | one more sample, check and fix pass toward a stated accuracy target |
 | "can I compact this session?" | state is written to notes, then a yes or no |
 | "I'm going to sleep, anything needed from me?" | blockers cleared now, a queue for the night, a recap in the morning |
 | "cleanup" | servers stopped, merged worktrees removed, disk reported |
+| "/goal ...", "do not stop until it is done and verified" | a run that lasts days: a program note, watchers, a recap each morning |
 
 If a sentence does not load the skill you expected, name it: `/flow:orchestrate`,
 `/flow:status-report`, and so on.

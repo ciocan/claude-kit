@@ -62,9 +62,27 @@ Record how to start them again.
 Read the tail of the state note, the epic issue, `git log` and `gh pr list`. Restart the monitors.
 Then continue from the first item that has no landed PR.
 
-## Ledger for long programs
+## Handing over to a fresh session
 
-For work that spans weeks and several repositories, keep a ledger outside the memory directory:
+When the context is nearly full, or the next stage belongs to another session, agent or machine,
+write two things:
+
+1. A handoff document in the repository: what was decided and why, what is done, what is next,
+   the traps met so far.
+2. A prompt to paste into the new session. It names the document to read first, the stage to do,
+   the points where it must stop and smoke test, and the standing rules, for example "do not
+   commit, I review after each stage".
+
+For staged work write one prompt per stage. The user pastes the next one after reviewing the
+last. A message to another agent or machine has the same shape: what happened, what it owns,
+what it must leave alone.
+
+## Work that runs for weeks
+
+A goal that outlasts a session gets a program note with a top block edited in place and a log
+that is rotated. The template, the log entry and the re-anchor checklist are in `long-haul`.
+
+For a program that spans several repositories, also keep a ledger outside the memory directory:
 one folder per day, one line per merged PR. Reconcile it against
 `gh pr list --state merged --search "merged:>=<date>"` in each repository before saying it is up
 to date. Take dates from the machine.

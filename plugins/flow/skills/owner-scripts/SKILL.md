@@ -25,7 +25,8 @@ folder or a directory outside the scratchpad.
 - A preflight that checks the host, the checkout and the variables it needs, and fails with a
   sentence that says what is missing.
 - It sets its own connection settings. A paste that depends on the user's shell state fails.
-- It prints what it is about to do and what it did.
+- It prints what it is about to do and what it did, checks the result after each step, and ends
+  with a short report.
 - It never prints a secret. Secrets come from the secret store or a prompt, and go to commands on
   stdin. Arguments show up in process lists and telemetry.
 - A long run gets its own script and its own line. Never chain one in front of a migration.
@@ -45,6 +46,21 @@ One line per step, in order:
 - A prompt for a secret has no terminal behind `!` and stores an empty value. Tell the user to run
   those in their own terminal.
 - When the user sends such a line as a normal chat message, they are asking you to run it.
+
+## Logins on a machine without a browser
+
+A command-line login opens a browser and waits for a callback on `localhost`. When the user's
+browser is on another machine, that redirect fails there.
+
+1. Start the login without a browser as a background command, with its output in a log. It must
+   stay alive. The code is bound to that process.
+2. Give the user the authorisation link from the log.
+3. The user pastes back the failed `http://localhost:<port>/...` address from their browser.
+4. Check that its `state` matches the one in the log, then request that address with `curl` on
+   this machine.
+5. Confirm with the tool's `whoami`.
+
+When a login cannot be relayed this way, the user runs it in their own terminal.
 
 ## Afterwards
 

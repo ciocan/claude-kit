@@ -63,7 +63,8 @@ The repository's instruction file wins over every line here.
 ## Closing issues
 
 Close an issue when merged PRs meet all its acceptance criteria. Post one comment that maps each
-criterion to a PR, with measured figures where the criterion is a number. Closing keywords fire
+criterion to a PR, with measured figures where the criterion is a number, what verified it, and
+the follow-up issue that took any scope left over. Closing keywords fire
 only on a merge into the default branch, so a repository that integrates on `dev` needs the close
 done by hand.
 

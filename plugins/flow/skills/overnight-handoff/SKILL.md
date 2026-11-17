@@ -5,6 +5,9 @@ description: Prepare an unattended run before the user leaves and report on it w
 
 # Overnight handoff
 
+One night. For a goal that runs for days, `long-haul` holds the rest: the program note, the
+wake-ups and watchers, and the scripts that chain the night's steps.
+
 ## Before they go
 
 1. List everything that will stop you while they are away: decisions, secrets, logins, commands
