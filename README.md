@@ -43,6 +43,23 @@ bootstrap/install.sh --apply              # minimal profile
 bootstrap/install.sh --profile full --apply
 ```
 
+## Updating
+
+```sh
+claude plugin marketplace update claude-kit   # fetch the latest catalog from GitHub
+claude plugin update flow@claude-kit
+claude plugin update unslop@claude-kit
+```
+
+Then run `/reload-plugins` in any open session, or restart Claude Code.
+
+- Run the marketplace update first. The plugin update reads your local copy of the catalog, and
+  without a refresh it reports nothing new.
+- `claude plugin list` shows the version you have installed.
+- From inside a session, put `!` in front of a command to run it without leaving.
+- If you change the kit in a fork, bump `version` in `plugins/flow/.claude-plugin/plugin.json`
+  with every change. Installs are cached per version number.
+
 ## New here?
 
 After installing, open Claude Code in one of your repositories and run `/flow:start`. It checks
