@@ -1,0 +1,30 @@
+# Opens or updates a release PR on every push to main from the conventional
+# commits since the last release. Merging that PR tags vX.Y.Z, publishes the
+# GitHub release, updates CHANGELOG.md and writes the same version into both
+# plugin manifests (plugins/*/.claude-plugin/plugin.json), so a release and the
+# plugins Claude Code installs carry one number. Config:
+# release-please-config.json and .release-please-manifest.json at the root.
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+# The repository default for workflows is read-only, so the job asks for what
+# release-please needs and nothing else. GITHUB_TOKEN is enough once the
+# repository allows Actions to create pull requests (Settings, Actions,
+# General, Workflow permissions).
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned to the commit of tag v5.0.0 (2026-04-22) because the job holds
+      # write permissions. Bump the SHA and this comment together when upgrading.
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

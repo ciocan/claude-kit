@@ -57,8 +57,8 @@ Then run `/reload-plugins` in any open session, or restart Claude Code.
   without a refresh it reports nothing new.
 - `claude plugin list` shows the version you have installed.
 - From inside a session, put `!` in front of a command to run it without leaving.
-- If you change the kit in a fork, bump `version` in `plugins/flow/.claude-plugin/plugin.json`
-  with every change. Installs are cached per version number.
+- Each [release](https://github.com/ciocan/claude-kit/releases) carries the version the plugins
+  report, and `CHANGELOG.md` says what changed in it.
 
 ## New here?
 
@@ -162,6 +162,26 @@ claude plugin validate plugins/flow
 claude plugin validate plugins/unslop
 tests/long-haul.sh          # 60 checks of the long-haul scripts, against a stub gh
 ```
+
+## Releases
+
+[release-please](https://github.com/googleapis/release-please) cuts the releases. On every push
+to `main` it opens or updates a release pull request. Merging that pull request tags
+`v<version>`, publishes the GitHub release, updates `CHANGELOG.md` and writes the same version
+into both plugin manifests. A release and the plugins Claude Code installs carry one number.
+
+- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org).
+- `feat` bumps the minor number. `fix`, `docs` and `refactor` bump the patch number. Below 1.0 a
+  breaking change bumps the minor number too.
+- `chore`, `ci`, `build`, `test` and `style` commits do not cut a release. Claude Code caches an
+  install per version number, so never use one of those for a change under `plugins/`. Users
+  would not receive it.
+- Do not edit `version` in a plugin manifest by hand. The release pull request sets it.
+- The repository must allow Actions to open pull requests: Settings, Actions, General, Workflow
+  permissions, "Allow GitHub Actions to create and approve pull requests".
+
+The config is `release-please-config.json`, the last released version is in
+`.release-please-manifest.json`, and the workflow is `.github/workflows/release-please.yml`.
 
 ## Licence
 
