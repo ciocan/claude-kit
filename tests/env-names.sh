@@ -86,6 +86,68 @@ expect_eq "a quote that never closes hides the rest" ".env.open: OPEN" "$out"
 printf 'ONE="a"\nTWO="b"\n' >"$W/.env.next"
 out=$( cd "$W" && run .env.open .env.next ); rc=$?
 expect_has "an open quote does not carry into the next file" ".env.next: ONE TWO" "$out"
+echo "env-names.py and a quote that opens inside a value"
+cat >"$W/.env.mid" <<'EOF'
+TOKEN=prefix"first line
+SECRET_FRAGMENT=more of the value
+"
+AFTER_MID=1
+TWO_QUOTES="closed" then 'open again
+HIDDEN_PIECE=still inside
+' and "a third
+THIRD_PIECE=inside too
+"
+WITH_COMMENT=value # it's a comment, the apostrophe opens nothing
+AFTER_COMMENT=2
+ESCAPED_QUOTE=one\"two
+AFTER_ESCAPE=3
+HASH_IN_VALUE=abc#"not a comment
+PIECE_AFTER_HASH=inside
+"
+LAST=4
+EOF
+out=$( cd "$W" && run .env.mid ); rc=$?
+expect_eq "names only, with quotes opening mid-value" ".env.mid: TOKEN AFTER_MID TWO_QUOTES WITH_COMMENT AFTER_COMMENT ESCAPED_QUOTE AFTER_ESCAPE HASH_IN_VALUE LAST" "$out"
+for piece in SECRET_FRAGMENT HIDDEN_PIECE THIRD_PIECE PIECE_AFTER_HASH "first line" "more of" "still inside"; do
+  expect_not "no piece of a value: $piece" "$piece" "$out"
+done
+
+echo "env-names.py on forms other programs accept"
+# Each block is a value that runs over several lines in a form the first version did not track.
+cat >"$W/.env.forms" <<'EOF'
+FIRST=1
+PRIVATE_KEY: "-----BEGIN KEY-----
+MIIEvQIBADANBgColonForm
+Zk9xQwErTy1=
+-----END KEY-----"
+SECOND=2
+firebase.key="-----BEGIN KEY-----
+AbCdEfSecret=
+-----END KEY-----"
+THIRD=3
+UNQUOTED_KEY=-----BEGIN KEY-----
+MIIEunquotedBlock=
+Proc-Type: 4,ENCRYPTED
+-----END KEY-----
+FOURTH=4
+PASS='it\'s
+MIIEsecretTail==
+EOF
+out=$( cd "$W" && run .env.forms ); rc=$?
+expect_code "it runs" 0 "$rc" "$out"
+for name in FIRST PRIVATE_KEY SECOND firebase.key THIRD UNQUOTED_KEY FOURTH PASS; do
+  expect_has "a real name is listed: $name" " $name" "$out"
+done
+for piece in MIIEvQIBADANBgColonForm Zk9xQwErTy1 AbCdEfSecret MIIEunquotedBlock Proc-Type MIIEsecretTail "BEGIN" "END"; do
+  expect_not "no piece of a value: $piece" "$piece" "$out"
+done
+# Where the two readings of a single quote differ, later lines stay hidden under the reading
+# that keeps the quote open. A name may go missing. Nothing leaks.
+printf "A='x\\\\'\nB=after\nC='end'\nD=last\n" >"$W/.env.readings"
+out=$( cd "$W" && run .env.readings ); rc=$?
+expect_has "the name before the doubtful quote is listed" ".env.readings: A" "$out"
+expect_not "no value under either reading" "after" "$out"
+
 mkdir -p "$T/none"
 out=$( cd "$T/none" && run ); rc=$?
 expect_code "no env file at all" 0 "$rc" "$out"

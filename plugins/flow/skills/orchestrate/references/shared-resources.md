@@ -75,6 +75,10 @@ claims.py claim dev-backend "<branch>@<sha>" "<what is deployed>" --owner <label
 lock.py release dev-backend --owner <label>
 ```
 
+If the claims check exits 1, or the subset check or the push fails, release the lock before you
+stop. `lock.py` never breaks a lock for age, so one left behind blocks every later push until a
+person runs `release --force`.
+
 Release the claim when the branch merges or its code is no longer deployed.
 
 ## The line for the state note

@@ -14,11 +14,19 @@ every continuation line, which is part of the secret. This parser tracks an open
 those lines. It prints names only, it never evaluates the file, and nothing it reads from the
 right of an equals sign reaches the output.
 
-A name is what stands before the first equals sign of an assignment line: letters, digits and
-underscores, not starting with a digit, with an optional "export " in front. Blank lines and
-comments are skipped. A value may start with a double quote, a single quote or a backtick. Inside
-double quotes and backticks a backslash escapes the next character. Inside single quotes nothing
-is escaped.
+A name is what stands before the first "=" or ":" of an assignment line, with an optional
+"export " in front. Blank lines and comments are skipped. A quote may open anywhere in a value
+(TOKEN=prefix"first line), so every line is scanned to its end: double quotes, single quotes and
+backticks. Outside quotes a # after a space starts a comment.
+
+Env files are read by different programs with different rules, and the rules differ on one point
+that matters here: whether a backslash escapes a single quote inside single quotes. A shell says
+no, most dotenv libraries say yes. The parser keeps both readings. A line counts as outside every
+value only when both readings agree that it is. A block between "-----BEGIN" and "-----END" is
+skipped as well, quoted or not.
+
+When in doubt the parser stays inside the value. A quote that never closes hides the rest of
+the file, so a name may go unlisted. No piece of a value is listed as a name.
 
 Exit codes: 0 done (also when no env file exists), 2 a file that was named cannot be read.
 """
@@ -26,44 +34,69 @@ import glob
 import re
 import sys
 
-ASSIGN = re.compile(r'^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$', re.S)
+ASSIGN = re.compile(r'^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*[=:](.*)$', re.S)
+SEPARATOR = re.compile(r'[=:]')
 
 
-def closes(text, quote):
-    """True when text holds the closing quote, honouring backslash escapes except in single quotes."""
-    i = 0
+def scan(text, quote, escape_in_single):
+    """Walk through value text and return the quote that is still open at its end, or None.
+
+    quote is the quote already open when the text starts: a continuation line of a value.
+    escape_in_single says whether a backslash escapes the next character inside single quotes.
+    """
+    i, prev = 0, ' '
     while i < len(text):
         ch = text[i]
-        if ch == '\\' and quote != "'":
+        if quote:
+            if ch == '\\' and (quote != "'" or escape_in_single):
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch == '\\':
             i += 2
+            prev = 'x'
             continue
-        if ch == quote:
-            return True
+        elif ch in ('"', "'", '`'):
+            quote = ch
+        elif ch == '#' and prev in (' ', '\t'):
+            return None  # a comment: the rest of the line is not part of the value
+        prev = ch
         i += 1
-    return False
+    return quote
+
+
+def advance(quote, line, escape_in_single):
+    """The open quote of one reading after this line, given its open quote before it."""
+    if quote:
+        return scan(line, quote, escape_in_single)
+    if not line.strip() or line.lstrip().startswith('#'):
+        return None
+    # Scan what follows the first separator. A line that is no assignment may still open a quote.
+    m = SEPARATOR.search(line)
+    return scan(line[m.end():] if m else line, None, escape_in_single)
 
 
 def names(lines):
     """Variable names of an env file, in order of first appearance."""
-    found, seen, open_quote = [], set(), None
+    found, seen = [], set()
+    shell = dotenv = None   # the quote each reading holds open at the start of the line
+    in_block = False        # between -----BEGIN and -----END
     for line in lines:
         line = line.rstrip('\r\n')
-        if open_quote:
-            # Inside a value that runs over several lines. Nothing here is a name.
-            if closes(line, open_quote):
-                open_quote = None
-            continue
-        if not line.strip() or line.lstrip().startswith('#'):
-            continue
-        m = ASSIGN.match(line)
-        if not m:
-            continue
-        name, value = m.group(1), m.group(2).lstrip()
-        if name not in seen:
-            seen.add(name)
-            found.append(name)
-        if value[:1] in ('"', "'", '`') and not closes(value[1:], value[0]):
-            open_quote = value[0]
+        outside = not shell and not dotenv and not in_block
+        if outside and line.strip() and not line.lstrip().startswith('#'):
+            m = ASSIGN.match(line)
+            if m and m.group(1) not in seen:
+                seen.add(m.group(1))
+                found.append(m.group(1))
+        if in_block:
+            if '-----END' in line:
+                in_block = False
+        elif '-----BEGIN' in line and '-----END' not in line.split('-----BEGIN', 1)[1]:
+            in_block = True
+        shell = advance(shell, line, False)
+        dotenv = advance(dotenv, line, True)
     return found
 
 

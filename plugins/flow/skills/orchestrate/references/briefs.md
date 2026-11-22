@@ -34,8 +34,10 @@ You implement <issue ref> of <repo> (<stack>): <one sentence, the observable out
   production (a live key, a production queue or database), stop and say so. (standing)
 - Shared with other agents and sessions: <backend by name>, lock <name>. You do not push to it, I
   do. [Or: you may push, in this order and as separate commands: `lock.py acquire <name>`,
-  `claims.py check <name>` (if it exits 1, stop and report: another session has code there),
-  <the subset check>, the push, `claims.py claim <name> <ref>`, `lock.py release <name>`.]
+  `claims.py check <name>`, <the subset check>, the push, `claims.py claim <name> <ref>`,
+  `lock.py release <name>`. If the claims check exits 1, or the subset check or the push fails,
+  run `lock.py release <name>` first, then stop and report. The lock is never broken for age, so
+  one left behind blocks every later push until a person releases it.]
   Make your own test user and organisation with <command>. Never use <the shared test account>
   for a hand check.
 - Before heavy runs check `free -g` and `uptime`. Wait while free memory is under <n> GB or load is
