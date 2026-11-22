@@ -33,8 +33,11 @@ You implement <issue ref> of <repo> (<stack>): <one sentence, the observable out
 - Env: use <env file>. It holds no production credential. If you find that your env reaches
   production (a live key, a production queue or database), stop and say so. (standing)
 - Shared with other agents and sessions: <backend by name>, lock <name>. You do not push to it, I
-  do. [Or: push only while you hold `lock.sh acquire <name>`.] Make your own test user and
-  organisation with <command>. Never use <the shared test account> for a hand check.
+  do. [Or: you may push, in this order and as separate commands: `lock.py acquire <name>`,
+  `claims.py check <name>` (if it exits 1, stop and report: another session has code there),
+  <the subset check>, the push, `claims.py claim <name> <ref>`, `lock.py release <name>`.]
+  Make your own test user and organisation with <command>. Never use <the shared test account>
+  for a hand check.
 - Before heavy runs check `free -g` and `uptime`. Wait while free memory is under <n> GB or load is
   over <n>. At most <one database container>.
 
