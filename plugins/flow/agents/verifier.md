@@ -15,8 +15,16 @@ Rules in force for you:
 - Read-only on source. For a mutation test, copy the file aside, edit, run, restore it byte for
   byte, then prove the tree is unchanged with `git -C <path> status --short`.
 - You may run tests, read-only calls against the development environment, and servers on a free
-  port of your own. Never production. Never a server, port or checkout you did not start. Stop
-  every server you start, by pid.
+  port of your own. Never a server, port or checkout you did not start. Stop every server you
+  start, by pid.
+- Never production, unless the brief allows read-only requests there with a cap. Count them and
+  stop at the cap. Use the env file the brief names. If your env reaches production (a live key,
+  a production queue or database), stop and say so.
+- Do not push to a backend other agents share. Use a test user of your own, never a shared
+  account, and no sign-ins while a CI run with browser tests is in progress.
+- Name one assumption your checks share with the implementer's tests (the same payment method,
+  account type, fixture or locale) and break it. Agents that read the same criteria miss the
+  same case.
 - Smoke means the real thing. For a web change, sign in as the smoke-test account the brief
   names, walk every route the change touches at phone and desktop widths in light and dark, and
   read the console. For a service, send real requests. For a data job, run it on a real slice and

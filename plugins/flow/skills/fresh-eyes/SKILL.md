@@ -32,8 +32,14 @@ Give the symptom and the access, nothing else.
 - Leave out the implementer's account of what it tested.
 - Ask the verifier to try to break the change: inputs the author did not think of, the unhappy
   paths, the state left behind after a failure. It also runs the real thing, see `smoke-test`.
+- Ask it to name one assumption its checks share with the implementer's tests (the same payment
+  method, account type, fixture or locale) and to break that one.
 - For the expensive functions above, run several rounds, each with a new agent, until a round
   finds nothing.
+
+A fresh agent has new eyes on the code and the same acceptance criteria as everyone before it. A
+case the criteria never mention survives any number of rounds. That gap is closed earlier, by the
+failure-mode pass in `grill-to-epic`, and later, by one review of the merged whole (`orchestrate`).
 
 ## Comparing
 

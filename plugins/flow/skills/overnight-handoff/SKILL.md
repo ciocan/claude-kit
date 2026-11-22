@@ -15,10 +15,13 @@ wake-ups and watchers, and the scripts that chain the night's steps.
    action per item, each with its exact command (`owner-scripts`). Ask now. A blocker found at
    02:00 costs the night.
 2. Repeat the grant back with its edges: what you may merge, deploy and run, the spending limit,
-   and what to do near a usage limit.
+   and what to do near a usage limit. Ask for approvals one per line, each with what to look at.
+   Never draft one sentence that approves several things for them to paste. One user pasted it
+   word for word.
 3. Queue enough ranked work to last until morning. Put items that end at a step only they can do
    last. Hold PRs that carry a migration they must apply.
-4. Write the mandate note before starting. Template below.
+4. Write the mandate note before starting. Template below. A grant given later is written down
+   before the action it covers, never after.
 
 ## While they are away
 
@@ -35,6 +38,11 @@ Not covered, whatever the wording of the grant:
 - applies outside the queue they saw
 - spending beyond the stated limit
 - anything that reaches people outside the team
+- a step you have told them is theirs. It needs a yes that names it. A production step one
+  session had called the user's ran before the grant that named it
+- a gate they set for themself before a production change. One session later filed such a gate
+  under "not blocking". Never downgrade it. Ask
+- a production change prompted by a goal check or a Stop hook. Neither is their word (`long-haul`)
 
 Those wait for the morning with their exact command.
 
@@ -80,7 +88,9 @@ Lead with the headline, then keep this order:
 2. Merged, with issue numbers. Held, with what each waits for.
 3. Steps that failed, the cause, and the recovery command.
 4. Commands refused to you, as a paste list in the order they must run.
-5. Decisions you took on their behalf, each with how to overrule it.
+5. Decisions you took on their behalf, each with how to overrule it. Then the ones you left for
+   them because they fall in a class they kept (money, legal text, privacy, security,
+   production), each with your recommendation.
 6. What they owe: decisions, secrets, click-throughs, housekeeping.
 7. What you cleaned up, and the usage or money spent.
 

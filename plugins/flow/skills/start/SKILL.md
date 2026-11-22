@@ -21,6 +21,10 @@ Run these together. Keep the raw output to yourself.
   tests, build)
 - `.github/workflows/`: is there CI, and which commands does it run
 - `gh issue list --limit 10`: is there a backlog to pick from
+- env file names and the variable names in them, never the values:
+  `${CLAUDE_SKILL_DIR}/scripts/env-names.py`, run from the repository root. The script ships with
+  this skill, it is not in the user's repository. Do not grep the files. A quoted value can run over several lines, and a line grep prints pieces
+  of it. Look for a database URL, a hosted backend deployment, auth keys, payment keys
 - this session's skill list: are `code-review` and a grilling skill installed
 
 ## 2. Report
@@ -35,6 +39,11 @@ One line per item, ready or missing. For each missing item give the one thing th
 | no CI | not a blocker. Say that merges will rest on the local gates alone |
 | no `code-review` plugin | `/plugin install code-review@claude-plugins-official` |
 | no grilling skill | `/plugin install mattpocock-skills@claude-plugins-official` |
+
+Agents in separate worktrees still share whatever the env files point at: one database, one
+hosted backend, one auth instance, one payment sandbox. Name the ones you found, ask which can be
+given per session or per worktree, and offer to record the answer in the instruction file. The
+checklist is `shared-resources.md` in `orchestrate`.
 
 ## 3. Explain the loop
 

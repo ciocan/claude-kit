@@ -52,6 +52,7 @@ that wrote the patch finds it correct (`fresh-eyes`).
 
 - Never score on items you tuned on.
 - A fix for one shape must not break another. That is what the regression set is for.
-- Keep the record of rounds in the repository. It is the evidence that the target was met.
+- Keep the record of rounds in the repository, on a branch and committed or staged for the user
+  (`save-state`). It is the evidence that the target was met.
 - An unattended loop ("do not stop until all cases are covered") still needs the stop rule above,
   and a bound on rounds or spend.

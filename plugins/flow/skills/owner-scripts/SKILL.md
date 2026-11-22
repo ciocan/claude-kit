@@ -17,8 +17,9 @@ single paste.
 
 ## The script
 
-Write `<topic>-owner.sh` somewhere that survives the session, under the repository's scripts
-folder or a directory outside the scratchpad.
+Write `<topic>-owner.sh` somewhere that survives the session: a directory outside the
+repository and outside the scratchpad, or the repository's scripts folder on a branch when it is
+worth keeping (`save-state`). Never leave it untracked in the user's checkout.
 
 - `set -euo pipefail`, safe to run twice.
 - Dry run by default. `--apply` acts.

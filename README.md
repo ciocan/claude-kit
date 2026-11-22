@@ -22,7 +22,9 @@ design grilling, 59 set a goal to run unattended, and 35 handed over for the nig
 
 Each skill answers a request I typed dozens of times. Each trap in the reference files cost a
 lost branch, a dead shell or a full disk at least once. What every number counts, and what it
-cannot tell apart, is in [docs/evidence.md](docs/evidence.md).
+cannot tell apart, is in [docs/evidence.md](docs/evidence.md), next to what went wrong: two long
+runs taken apart afterwards had 22 and 14 collisions on things a worktree does not separate, and
+17 defects that were merged before anyone found them.
 
 ## Install
 
@@ -93,6 +95,7 @@ test, PR, merge, close. The main session orchestrates and stays out of the code.
 | `long-run-cli` | "can it run faster?", "show progress", "what are the exact commands?" | Progress, resume, all cores, runbook in the same change |
 | `ui-fix` | a screenshot with a complaint | Fix in place, tokens, both themes, phone and desktop |
 | `repo-conventions` | "update the claude md", "instruct it to always ..." | AGENTS.md as the index, with a starter template and stack defaults |
+| `retro` | "do a retro on those sessions", "how much of these concerns are valid" | Counts from the transcripts and the tracker, incidents by class, what to change |
 | `cleanup` | "cleanup", "free up disk space" | Stops what it started, removes merged worktrees, reports disk |
 
 Three agent definitions ship with it: `flow:implementer` (Opus, high effort), `flow:reviewer`
@@ -103,11 +106,13 @@ Reference files worth reading on their own:
 
 - `plugins/flow/skills/orchestrate/references/briefs.md`: fill-in briefs for four agent roles
 - `plugins/flow/skills/orchestrate/references/traps.md`: what went wrong and the guard for each
+- `plugins/flow/skills/orchestrate/references/shared-resources.md`: what a worktree does not
+  separate (database, auth, sandboxes, env files, CI), with a lock script and a claims folder
 - `plugins/flow/skills/ship-pr/references/git-traps.md`: squash, force push, stacked PRs, markers
 - `plugins/flow/skills/long-haul/references/stalls.md`: what stalled nine multi-day runs, with the
   hours each cost
 - `plugins/flow/skills/long-haul/references/keeping-going.md`: what survives a restart, wake-ups,
-  watchers, and four scripts for unattended chains and merges
+  watchers, and scripts for unattended chains, merges and the program note
 - `plugins/flow/skills/repo-conventions/references/AGENTS.template.md`: a starter instruction file
 
 ## The `unslop` plugin
@@ -160,7 +165,13 @@ while building this kit. If one fails, the log names it and the rest still insta
 claude plugin validate .
 claude plugin validate plugins/flow
 claude plugin validate plugins/unslop
-tests/long-haul.sh          # 60 checks of the long-haul scripts, against a stub gh
+tests/long-haul.sh          # detached runs, chains and the merge train, against a stub gh
+tests/shared-resources.sh  # lock.py and claims.py
+tests/notes.sh             # note.py: stamped log entries, rotation
+tests/tick.sh              # tick.py: issue checkboxes, against a stub gh
+tests/retro.sh             # transcript-digest.py, against hand-written fixtures
+tests/cited-paths.sh       # cited-paths.py: do the paths an issue cites exist on the base
+tests/env-names.sh         # env-names.py: variable names of env files, never a value
 ```
 
 ## Releases

@@ -17,6 +17,9 @@ last report:
 - agents in flight: which are running, which handed back, which died
 - pull requests and CI: `gh pr list`, `gh pr checks <n>`, `gh run list --limit 5`
 - the queue: what is ready, what is blocked
+- deployed state: what is live where. Measure it again before repeating an earlier claim, and
+  give the time of the measurement. "Not live yet" was once repeated for hours after it had
+  stopped being true
 
 ## Order of the report
 
@@ -43,6 +46,8 @@ last report:
 
 - Number everything the user may choose from, so they can answer by number.
 - Give times in one zone and name it. Take the time from the machine, never from memory.
+- Durations come from the tracker's merge and close times (`gh pr view <n> --json mergedAt`,
+  `gh issue view <n> --json closedAt`), not from the note. A note's clock can drift by hours.
 - Leave out what has not changed, and do not restate the plan.
 - Report failures as plainly as successes: a red check, a failed run, an agent killed by a usage
   limit, a job that stalled.

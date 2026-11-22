@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: Run the main session as an orchestrator that sends implementer and verifier subagents through the loop from issue to merged PR (worktree, build, review, smoke test, PR, merge, close) and keeps agent slots full. Use when the user says "deploy an agent", "deploy agents", "same machinery", "you're the orchestrator", "you manage everything from here", "work with subagents", or asks to work an epic, a wave or a list of issues.
+description: Run the main session as an orchestrator that sends implementer and verifier subagents through the loop from issue to merged PR (worktree, build, review, smoke test, PR, merge, close) and keeps agent slots full. Use when the user says "deploy an agent", "deploy agents", "same machinery", "you're the orchestrator", "you manage everything from here", "work with subagents", or asks to work an epic, a wave or a list of issues, and when the user asks "what do the worktrees share?", "do the agents need their own database?" or why agents or sessions keep breaking each other's dev environment.
 ---
 
 # Orchestrate
@@ -12,7 +12,8 @@ reviewer, smoke test, PR, merge, close. The main session runs the loop and stays
 
 - The orchestrator plans, slices, writes briefs, rules on open questions, triages review findings,
   commits and pushes, opens and merges PRs, deploys what it may, closes issues and keeps the state
-  note.
+  note. A question in a decision class the user kept (`grill-to-epic`) goes to them with a
+  recommendation.
 - The orchestrator does not read code to answer a question itself. Reading a file to write a brief
   is fine. Its context is the scarce resource, and every inspection loop spent inline is gone.
 - Implementers build and test in their own worktree. Reviewers and verifiers read and run, and
@@ -31,7 +32,8 @@ reviewer, smoke test, PR, merge, close. The main session runs the loop and stays
 5. Brief an implementer. The templates are in [references/briefs.md](references/briefs.md).
 6. Send a reviewer that did not write the change. Its findings go back to the same implementer
    with SendMessage, which keeps that agent's context. Three fix rounds at most. After that, close
-   the last gaps yourself or file them as follow-up issues.
+   the last gaps yourself or file them as follow-up issues. Every merge has a reviewer run behind
+   it, a one-sentence change included.
 7. Smoke test the real thing. See `smoke-test`.
 8. Rerun the cheap gates yourself after the agent's last edit, then land the change with
    `ship-pr`.
@@ -40,6 +42,14 @@ reviewer, smoke test, PR, merge, close. The main session runs the loop and stays
 
 Changes to money, auth, migrations or anything that deletes get one more review on the strongest
 model before the merge.
+
+Before an epic is called done, one review reads the merged whole against the epic. Agents that
+work from the same acceptance criteria share their blind spots: a defect once passed every
+review and verification run, and a review of the merged code found it.
+
+The third follow-up issue from the same root goes to the user, with the cost so far, the risk
+that is left and the option to accept it. One edge case took about ten pull requests of ever
+smaller residues before anyone asked whether it was worth it.
 
 ## Slots
 
@@ -74,5 +84,14 @@ merged, what is in flight, what you started and why, and what waits for the user
 
 ## Before the first launch
 
-Read [references/traps.md](references/traps.md) once per session. Every line in it cost a lost
-branch, a dead shell or a full disk.
+1. Read [references/traps.md](references/traps.md) once per session. Every line in it cost a lost
+   branch, a dead shell or a full disk.
+2. List what the worktrees will share. A worktree separates files and nothing else: the database
+   or hosted backend, the auth provider, third-party sandboxes, env files, CI runners, ports and
+   memory stay common. Isolate what can be isolated, put a guard on the rest, and write the result
+   in the state note where briefs can quote it. The checklist, the guards that held and two
+   scripts are in
+   [references/shared-resources.md](references/shared-resources.md). The scripts themselves are
+   `${CLAUDE_SKILL_DIR}/scripts/lock.py` and `${CLAUDE_SKILL_DIR}/scripts/claims.py`, in this
+   skill's folder and not in the user's repository. An agent does not know that folder, so a
+   brief names the full path.

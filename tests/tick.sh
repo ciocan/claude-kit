@@ -1,0 +1,660 @@
+#!/usr/bin/env bash
+# Tests for tick.py. Nothing here touches GitHub: tick.py runs against a stub `gh` that serves an
+# issue body from a file as JSON and stores what an edit sends. The guards that no outside fault
+# can reach are tested in tests/py/test_tick.py, which this suite runs and counts.
+#
+#   tests/tick.sh             run everything
+#
+# Exit code: 0 all passed, 1 at least one failed.
+set -u
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TICK="$ROOT/plugins/flow/skills/ship-pr/scripts/tick.py"
+T="$(mktemp -d)"
+trap 'rm -rf "$T"' EXIT
+PASS=0
+FAIL=0
+unset TICK_BACKUP_DIR
+export TICK_LOCK_DIR="$T/locks" # never the real state folder
+
+ok() { PASS=$((PASS + 1)); echo "  ok    $1"; }
+no() { FAIL=$((FAIL + 1)); echo "  FAIL  $1"; [ -n "${2:-}" ] && echo "$2" | sed 's/^/        /'; }
+expect_code() { # name, wanted code, actual code, output
+  if [ "$2" = "$3" ]; then ok "$1"; else no "$1 (exit $3, wanted $2)" "$4"; fi
+}
+expect_has() { # name, needle, haystack
+  if printf '%s' "$3" | grep -qF -- "$2"; then ok "$1"; else no "$1 (missing: $2)" "$3"; fi
+}
+expect_not() { # name, needle, haystack
+  if printf '%s' "$3" | grep -qF -- "$2"; then no "$1 (found: $2)" "$3"; else ok "$1"; fi
+}
+expect_same() { # name, file, file
+  if cmp -s "$2" "$3"; then ok "$1"; else no "$1 (files differ)" "$(diff "$2" "$3" | head -n 20)"; fi
+}
+expect_eq() { # name, wanted, actual
+  if [ "$2" = "$3" ]; then ok "$1"; else no "$1 (got '$3', wanted '$2')"; fi
+}
+py_suite() { # file under tests/py: run it and add its ok and FAIL lines to the counts
+  local out rc fails
+  out=$(python3 -B "$ROOT/tests/py/$1" 2>&1); rc=$?
+  printf '%s\n' "$out"
+  PASS=$((PASS + $(printf '%s\n' "$out" | grep -c '^  ok    ')))
+  fails=$(printf '%s\n' "$out" | grep -c '^  FAIL  ')
+  FAIL=$((FAIL + fails))
+  if [ "$rc" != 0 ] && [ "$fails" = 0 ]; then no "tests/py/$1 ran to the end (exit $rc)"; fi
+}
+mode_of() { python3 -B -c 'import os, sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "$1"; }
+
+G="$T/gh"; mkdir -p "$G/bin"
+cat >"$G/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+# Canned GitHub issue. The body lives in $GH_STUB/body and every call is logged to $GH_STUB/calls.
+# An edit takes the body from --body-file <file>, or from stdin with --body-file -, as gh does.
+# Marker files in $GH_STUB change the behaviour:
+#   view-fails   issue view exits 1
+#   empty        issue view serves an empty body
+#   mangle       issue edit stores the body with its first line changed
+#   edit-fails   issue edit exits 1 and stores nothing
+#   peer-edit    a file whose content replaces the body just before the second view, the way
+#                another session's edit would land between the read and the write
+#   slow         issue view takes 0.3 seconds, so two runs at once overlap
+#   view-hangs   issue view touches $GH_STUB/viewing, then sleeps 3 seconds
+#   edit-hangs   issue edit stores the body, touches $GH_STUB/editing, then sleeps 3 seconds
+#   no-url       issue view gives the body without the issue's url
+#   plant-after  two lines, a folder and a target: on the second view, the one before the edit,
+#                put a symlink to the target at the .after.md name of the .before.md in the folder
+d=$GH_STUB
+echo "gh $*" >>"$d/calls"
+pos=(); bf= json= jq=
+while [ $# -gt 0 ]; do
+  case $1 in
+    --body-file) bf=$2; shift 2 ;;
+    --json) json=$2; shift 2 ;;
+    -q | --jq) jq=$2; shift 2 ;;
+    --repo | -R) shift 2 ;;
+    *) pos+=("$1"); shift ;;
+  esac
+done
+# Like `gh issue view --json body`: one JSON object, the body a string inside it.
+json_body() { # url, or empty for none
+  python3 -B -c 'import json, sys
+out = {"body": sys.stdin.buffer.read().decode("utf-8")}
+if sys.argv[1]:
+    out["url"] = sys.argv[1]
+print(json.dumps(out))' "$1"
+}
+url="https://github.com/o/r/issues/${pos[2]:-}"
+[ -f "$d/no-url" ] && url=
+case "${pos[0]:-}:${pos[1]:-}" in
+  issue:view)
+    [ "$json" = body,url ] && [ -z "$jq" ] || { echo "stub gh: view wants --json body,url and no --jq: $*" >&2; exit 9; }
+    [ -f "$d/slow" ] && sleep 0.3
+    [ -f "$d/view-hangs" ] && { touch "$d/viewing"; sleep 3; }
+    [ -f "$d/view-fails" ] && { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+    [ -f "$d/empty" ] && { printf '' | json_body "$url"; exit 0; }
+    n=$(( $(cat "$d/views" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$d/views"
+    [ -f "$d/peer-edit" ] && [ "$n" -eq 2 ] && cp "$d/peer-edit" "$d/body"
+    if [ -f "$d/plant-after" ] && [ "$n" -eq 2 ]; then
+      folder=$(sed -n 1p "$d/plant-after"); target=$(sed -n 2p "$d/plant-after")
+      for b in "$folder"/*.before.md; do ln -s "$target" "${b%.before.md}.after.md"; done
+    fi
+    json_body "$url" <"$d/body" ;;
+  issue:edit)
+    [ -f "$d/edit-fails" ] && { echo "HTTP 422" >&2; exit 1; }
+    if [ "$bf" = - ]; then cat >"$d/sent"; else cat -- "$bf" >"$d/sent"; fi || exit 1
+    if [ -f "$d/mangle" ]; then sed '1s/^/edited by a bot: /' "$d/sent" >"$d/body.new"; else cp "$d/sent" "$d/body.new"; fi
+    mv "$d/body.new" "$d/body"
+    [ -f "$d/edit-hangs" ] && { touch "$d/editing"; sleep 3; }
+    echo "https://github.com/o/r/issues/${pos[2]}" ;;
+  *) echo "stub gh: unexpected call: $*" >&2; exit 9 ;;
+esac
+STUB
+chmod +x "$G/bin/gh"
+export PATH="$G/bin:$PATH"
+
+B1='## Tasks
+- [ ] write the parser
+- [x] read the spec
+- [ ] write the tests
+- [ ] ship the parser docs
+Text with [ ] brackets that is not a box.'
+
+fresh() { # body text; one stub world per scenario
+  export GH_STUB="$T/world.$RANDOM$RANDOM"; mkdir -p "$GH_STUB"
+  export TICK_BACKUP_DIR="$GH_STUB/backups"
+  printf '%s\n' "$1" >"$GH_STUB/body"
+  cp "$GH_STUB/body" "$GH_STUB/served" # the body as stored, before any edit
+}
+tick() { "$TICK" "$@" 2>&1; }
+edits() { grep -c '^gh issue edit' "$GH_STUB/calls" 2>/dev/null || true; }
+body() { cat "$GH_STUB/body"; }
+line() { sed -n "$1p" "$GH_STUB/body"; }
+
+echo "tick.py selection"
+fresh "$B1"
+out=$(tick 5 --all); rc=$?
+expect_code "--all ticks every unticked box" 0 "$rc" "$out"
+expect_has "it reports the count" "ticked 3 of 4 boxes in #5, backup $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_eq "box 1 ticked" "- [x] write the parser" "$(line 2)"
+expect_eq "box 3 ticked" "- [x] write the tests" "$(line 4)"
+expect_eq "box 4 ticked" "- [x] ship the parser docs" "$(line 5)"
+expect_eq "the non-box line is untouched" "Text with [ ] brackets that is not a box." "$(line 6)"
+expect_eq "one edit call" 1 "$(edits)"
+# gh gets the body on stdin, so it reads no path that could be swapped after the check.
+expect_has "the edit sends the body on stdin" "gh issue edit 5 --body-file -" "$(cat "$GH_STUB/calls")"
+backup=$(printf '%s\n' "$out" | sed -n 's/.*, backup //p')
+if [ -f "$backup" ]; then ok "the backup file exists"; else no "the backup file exists" "$out"; fi
+expect_same "the backup equals the body as stored" "$GH_STUB/served" "$backup"
+expect_eq "only the backup is left in the backup dir" 1 "$(ls "$TICK_BACKUP_DIR" | wc -l | tr -d ' ')"
+
+fresh "$B1"
+out=$(tick 5 --match "write the tests"); rc=$?
+expect_code "one --match" 0 "$rc" "$out"
+expect_has "one of four" "ticked 1 of 4 boxes" "$out"
+sed '4s/\[ \]/[x]/' "$GH_STUB/served" >"$T/want"
+expect_same "only that line changed" "$T/want" "$GH_STUB/body"
+
+fresh "$B1"
+out=$(tick 5 --match "write the parser" --match "docs"); rc=$?
+expect_code "two --match" 0 "$rc" "$out"
+sed -e '2s/\[ \]/[x]/' -e '5s/\[ \]/[x]/' "$GH_STUB/served" >"$T/want"
+expect_same "both lines changed, nothing else" "$T/want" "$GH_STUB/body"
+
+fresh "$B1"
+out=$(tick 5 --match "deploy"); rc=$?
+expect_code "a --match with no hit is refused" 1 "$rc" "$out"
+expect_has "it says so" "--match 'deploy' fits no box" "$out"
+expect_same "the body is unchanged" "$GH_STUB/served" <(body)
+expect_eq "no edit call" 0 "$(edits)"
+
+fresh "$B1"
+out=$(tick 5 --match "the p.rser"); rc=$?
+expect_code "--match is a fixed string, not a regex" 1 "$rc" "$out"
+
+fresh "$B1"
+out=$(tick 5 --match "parser"); rc=$?
+expect_code "an ambiguous --match is refused" 1 "$rc" "$out"
+expect_has "it lists the first candidate" "line 2: - [ ] write the parser" "$out"
+expect_has "it lists the second candidate" "line 5: - [ ] ship the parser docs" "$out"
+expect_eq "no edit call" 0 "$(edits)"
+
+fresh "$B1"
+out=$(tick 5 --match "read the spec"); rc=$?
+expect_code "a --match on an already ticked box is not an error" 0 "$rc" "$out"
+expect_has "it reports the box" "already ticked, skipped: line 3: - [x] read the spec" "$out"
+expect_has "and that there is nothing to do" "nothing to tick in #5" "$out"
+expect_eq "no edit call" 0 "$(edits)"
+out=$(tick 5 --match "read the spec" --match "tests"); rc=$?
+expect_code "an already ticked box next to a fresh one" 0 "$rc" "$out"
+expect_has "the fresh one is ticked" "ticked 1 of 4 boxes" "$out"
+
+fresh "$B1"
+out=$(tick 5 --line 1 --line 3); rc=$?
+expect_code "--line" 0 "$rc" "$out"
+sed -e '2s/\[ \]/[x]/' -e '4s/\[ \]/[x]/' "$GH_STUB/served" >"$T/want"
+expect_same "--line counts checkboxes, not lines" "$T/want" "$GH_STUB/body"
+out=$(tick 5 --line 2); rc=$?
+expect_code "--line on a ticked box" 0 "$rc" "$out"
+expect_has "it is skipped" "nothing to tick in #5" "$out"
+
+fresh "$B1"
+out=$(tick 5 --line 9); rc=$?
+expect_code "--line out of range is refused" 1 "$rc" "$out"
+expect_has "it says how many there are" "#5 has 4 checkboxes" "$out"
+expect_eq "no edit call" 0 "$(edits)"
+
+fresh "$B1"
+out=$(tick 5 --untick --all); rc=$?
+expect_code "--untick --all" 0 "$rc" "$out"
+expect_has "it reports the untick" "unticked 1 of 4 boxes" "$out"
+expect_eq "the ticked box is open again" "- [ ] read the spec" "$(line 3)"
+out=$(tick 5 --untick --match "read the spec"); rc=$?
+expect_code "--untick --match on an open box" 0 "$rc" "$out"
+expect_has "it is reported as already unticked" "already unticked, skipped" "$out"
+
+fresh "$B1"
+out=$(tick 5 --all --dry-run); rc=$?
+expect_code "--dry-run" 0 "$rc" "$out"
+expect_has "it shows the old line" "line 2: - [ ] write the parser" "$out"
+expect_has "it shows the new line" "now: - [x] write the parser" "$out"
+expect_has "it says nothing was edited" "nothing edited" "$out"
+expect_eq "no edit call" 0 "$(edits)"
+expect_same "the body is unchanged" "$GH_STUB/served" <(body)
+
+echo "tick.py bodies"
+fresh "$B1"; touch "$GH_STUB/empty"
+out=$(tick 5 --all); rc=$?
+expect_code "an empty body is refused" 1 "$rc" "$out"
+expect_eq "no edit call" 0 "$(edits)"
+
+fresh "$B1"; touch "$GH_STUB/view-fails"
+out=$(tick 5 --all); rc=$?
+expect_code "a view that fails is refused" 1 "$rc" "$out"
+expect_has "it says it cannot read" "cannot read the body of #5" "$out"
+expect_eq "no edit call" 0 "$(edits)"
+expect_eq "no backup is left" 0 "$(ls "$TICK_BACKUP_DIR" | wc -l | tr -d ' ')"
+
+fresh "$(printf '## Tasks\r\n- [ ] one\r\n- [X] two\r\n  * [ ] three\r\nTrailing words, [ ] and all\r\n')"
+out=$(tick 5 --all); rc=$?
+expect_code "a CRLF body" 0 "$rc" "$out"
+expect_has "it ticks both open boxes" "ticked 2 of 3 boxes" "$out"
+sed 's/\[[xX]\]/[ ]/' "$GH_STUB/served" >"$T/a"
+sed 's/\[[xX]\]/[ ]/' "$GH_STUB/body" >"$T/b"
+expect_same "every byte but the ticked characters survives" "$T/a" "$T/b"
+expect_eq "the CRs are still there" 5 "$(tr -cd '\r' <"$GH_STUB/body" | wc -c | tr -d ' ')"
+expect_eq "the capital X is kept" "- [X] two"$'\r' "$(line 3)"
+
+NEST='Intro
+- [ ] top
+  - [ ] nested
+    * [ ] deeper star
++ [x] plus done
+-[ ] not a box
+- [] not a box
+	- [ ] tab indent'
+fresh "$NEST"
+out=$(tick 5 --all); rc=$?
+expect_code "nested lists and * bullets" 0 "$rc" "$out"
+expect_has "four open boxes of five" "ticked 4 of 5 boxes" "$out"
+expect_eq "the nested box" "  - [x] nested" "$(line 3)"
+expect_eq "the star box" "    * [x] deeper star" "$(line 4)"
+expect_eq "the tab-indented box" "	- [x] tab indent" "$(line 8)"
+expect_eq "a dash without a space is not a box" "-[ ] not a box" "$(line 6)"
+fresh "$NEST"
+out=$(tick 5 --line 3); rc=$?
+expect_code "--line counts nested boxes" 0 "$rc" "$out"
+expect_eq "the third box is the star one" "    * [x] deeper star" "$(line 4)"
+
+fresh 'Just prose.
+- a list item
+- [] almost a box'
+out=$(tick 5 --all); rc=$?
+expect_code "a body with no checkboxes is refused" 1 "$rc" "$out"
+expect_has "it says why" "#5 has no checkboxes" "$out"
+expect_eq "no edit call" 0 "$(edits)"
+
+fresh '- [x] a
+- [X] b'
+out=$(tick 5 --all); rc=$?
+expect_code "nothing to tick" 0 "$rc" "$out"
+expect_has "it says so" "nothing to tick in #5" "$out"
+expect_eq "no edit call" 0 "$(edits)"
+
+echo "tick.py after the edit"
+fresh "$B1"; touch "$GH_STUB/mangle"
+out=$(tick 5 --all); rc=$?
+expect_code "a read-back that differs exits 3" 3 "$rc" "$out"
+expect_has "it prints the restore command, pinned to the issue's host and repository" "gh issue edit 5 --repo github.com/o/r --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
+restore=$(printf '%s\n' "$out" | grep '^  gh issue edit' | sed 's/^  //')
+expect_has "the restore command points at the backup" ".before.md" "$restore"
+# Someone else's edit just after this one also makes the read-back differ. Restoring would remove
+# their text, so the message asks for a comparison first and gives the restore as the last resort.
+expect_has "it says what a differing read-back can mean" "An edit by someone else in the moment after this one looks the same." "$out"
+expect_has "it names the before file" "before (the body as it was):  $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_has "it names the after file" "after (what was sent):        $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_has "it names the read-back file" "read-back (the body now):     $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_has "it asks for a comparison first" "Compare the read-back with the after file before doing anything" "$out"
+expect_has "it calls the restore the last resort" "Last resort, only for a body that is damaged. This replaces the whole body with the backup:" "$out"
+compare_at=$(printf '%s\n' "$out" | grep -n 'Compare the read-back' | cut -d: -f1)
+restore_at=$(printf '%s\n' "$out" | grep -n '^  gh issue edit' | cut -d: -f1)
+if [ -n "$compare_at" ] && [ -n "$restore_at" ] && [ "$compare_at" -lt "$restore_at" ]; then
+  ok "the compare line comes before the restore line"
+else
+  no "the compare line comes before the restore line" "$out"
+fi
+rm -f "$GH_STUB/mangle"
+eval "$restore" >/dev/null
+expect_same "the restore command brings the body back" "$GH_STUB/served" "$GH_STUB/body"
+
+fresh "$B1"; touch "$GH_STUB/edit-fails"
+out=$(tick 5 --all); rc=$?
+expect_code "a failed edit call that changed nothing is refused" 1 "$rc" "$out"
+expect_has "it says the body is as it was" "the body is as it was" "$out"
+
+# Run from somewhere else, a restore command with only the issue number would overwrite another
+# repository's issue. It carries the repository from the issue's url and an absolute path.
+fresh "$B1"; touch "$GH_STUB/mangle"
+abs=$(cd "$GH_STUB" && pwd -P)
+out=$(cd "$GH_STUB" && "$TICK" 5 --all --backup-dir rel 2>&1); rc=$?
+expect_code "a relative backup folder, read-back differs" 3 "$rc" "$out"
+expect_has "the restore command carries an absolute path" "  gh issue edit 5 --repo github.com/o/r --body-file $abs/rel/issue-5-" "$out"
+expect_has "the files are named by absolute paths" "after (what was sent):        $abs/rel/issue-5-" "$out"
+fresh "$B1"; touch "$GH_STUB/mangle" "$GH_STUB/no-url"
+out=$(tick 5 --all); rc=$?
+expect_code "no url from gh and no --repo" 3 "$rc" "$out"
+expect_has "it says the repository is unknown" "The repository of #5 is unknown" "$out"
+expect_has "it names the backup" "The backup is $TICK_BACKUP_DIR/issue-5-" "$out"
+runnable=$(printf '%s\n' "$out" | grep '^  gh issue edit' | grep -vF '(REPOSITORY)')
+expect_eq "no gh issue edit line can be run as it stands" "" "$runnable"
+expect_has "the shape of the command has the placeholder" "  gh issue edit 5 --repo (REPOSITORY) --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
+fresh "$B1"; touch "$GH_STUB/mangle" "$GH_STUB/no-url"
+out=$(tick 5 --all --repo ghe.example.invalid/given/repo); rc=$?
+expect_has "without a url a --repo that names its host is printed as given" "  gh issue edit 5 --repo ghe.example.invalid/given/repo --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_not "and nothing says anything is unknown" "is unknown" "$out"
+# A --repo without a host would be resolved against gh's default host at restore time.
+fresh "$B1"; touch "$GH_STUB/mangle" "$GH_STUB/no-url"
+out=$(tick 5 --all --repo given/repo); rc=$?
+expect_code "no url and a --repo without a host" 3 "$rc" "$out"
+expect_has "it says the host is unknown" "The host of #5 is unknown" "$out"
+runnable=$(printf '%s\n' "$out" | grep '^  gh issue edit' | grep -vF '(HOST)')
+expect_eq "no gh issue edit line can be run as it stands then either" "" "$runnable"
+expect_has "the shape keeps the repository and marks the host" "  gh issue edit 5 --repo (HOST)/given/repo --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
+shape=$(printf '%s\n' "$out" | grep '^  gh issue edit')
+( gh() { echo RAN; }; eval "$shape" ) >"$T/shape.out" 2>&1
+expect_not "a shell refuses the shape with the host placeholder" "RAN" "$(cat "$T/shape.out")"
+# gh resolves OWNER/REPO against its default host, which GH_HOST changes. The printed command
+# names the host from the url, so it reads the same whatever GH_HOST says.
+fresh "$B1"; touch "$GH_STUB/mangle"
+out=$(GH_HOST=ghe.example.invalid "$TICK" 5 --all 2>&1); rc=$?
+expect_has "with GH_HOST set elsewhere the command still names github.com" "  gh issue edit 5 --repo github.com/o/r --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
+
+# A gh that cannot be started is a refusal with a clear line, not a traceback. This one is
+# executable, so it is found, but its interpreter does not exist. gh vanishing just before the
+# edit is tested in tests/py/test_tick.py.
+fresh "$B1"; mkdir -p "$GH_STUB/bin"; printf '#!/nonexistent/interpreter\n' >"$GH_STUB/bin/gh"; chmod +x "$GH_STUB/bin/gh"
+# PATH holds only that folder: on ENOENT, Python goes on to the next PATH entry, which would find
+# the stub. python3 is called by its full path for the same reason.
+py=$(command -v python3)
+out=$(PATH="$GH_STUB/bin" "$py" -B "$TICK" 5 --all 2>&1); rc=$?
+expect_code "a gh that cannot start at the first view is refused" 1 "$rc" "$out"
+expect_has "it says gh could not be started" "cannot start gh to read #5" "$out"
+expect_not "no traceback at the first view" "Traceback" "$out"
+expect_eq "no backup is left" 0 "$(ls -A "$TICK_BACKUP_DIR" | wc -l | tr -d ' ')"
+
+fresh "$B1"
+out=$(tick 5 --repo o/r --match "tests"); rc=$?
+expect_code "--repo" 0 "$rc" "$out"
+expect_eq "--repo reaches both views before the edit, the edit and the read-back" 4 "$(grep -c -- '--repo o/r' "$GH_STUB/calls")"
+# gh spells this option -R as well, and a session that knows gh reaches for it first.
+: >"$GH_STUB/calls"
+out=$(tick 5 -R o/r --untick --match "tests"); rc=$?
+expect_code "-R, the short form gh uses" 0 "$rc" "$out"
+expect_eq "-R reaches every gh call as --repo" 4 "$(grep -c -- '--repo o/r' "$GH_STUB/calls")"
+expect_eq "four gh calls in all" 4 "$(wc -l <"$GH_STUB/calls" | tr -d ' ')"
+
+fresh "$B1"
+out=$(tick 5 --all --backup-dir "$GH_STUB/elsewhere"); rc=$?
+expect_code "--backup-dir" 0 "$rc" "$out"
+expect_has "the backup goes there" "backup $GH_STUB/elsewhere/issue-5-" "$out"
+
+# The guard on the edited body, with a shortened body among others, is in tests/py/test_tick.py.
+
+echo "tick.py --match names one box"
+# A rerun must not tick a different box. "#412" is ticked, "#4123" is open, and both hold the text.
+fresh '## Epic
+- [x] #412 parser
+- [ ] #4123 docs
+- [ ] #500 tests'
+out=$(tick 5 --match "#412"); rc=$?
+expect_code "a text that fits one ticked and one open box is refused" 1 "$rc" "$out"
+expect_has "it counts both" "--match '#412' fits 2 boxes" "$out"
+expect_has "it lists the ticked one" "line 2: - [x] #412 parser" "$out"
+expect_has "it lists the open one" "line 3: - [ ] #4123 docs" "$out"
+expect_eq "no edit call" 0 "$(edits)"
+expect_same "the body is unchanged" "$GH_STUB/served" <(body)
+out=$(tick 5 --match "#412 "); rc=$?
+expect_code "the full text of the ticked box is a no-op" 0 "$rc" "$out"
+expect_has "it says already ticked" "already ticked, skipped: line 2" "$out"
+expect_eq "#4123 is still open" "- [ ] #4123 docs" "$(line 3)"
+out=$(tick 5 --match "#4123"); rc=$?
+expect_code "a text that fits one box ticks it" 0 "$rc" "$out"
+expect_eq "#4123 is ticked" "- [x] #4123 docs" "$(line 3)"
+
+echo "tick.py code fences, ordered and quoted items"
+fresh '## Plan
+- [ ] real one
+```md
+- [ ] template line, not a task
+```
+1. [ ] ordered item
+2) [ ] ordered with a bracket
+> - [ ] quoted item
+~~~
+* [ ] another template
+~~~
+- [ ] real two'
+out=$(tick 5 --line 2); rc=$?
+expect_code "--line 2 is the second box the page shows" 0 "$rc" "$out"
+expect_eq "the ordered item is box 2" "1. [x] ordered item" "$(line 6)"
+expect_eq "the fenced line was not counted" "- [ ] template line, not a task" "$(line 4)"
+out=$(tick 5 --all); rc=$?
+expect_code "--all" 0 "$rc" "$out"
+expect_has "it sees five boxes, not seven" "ticked 4 of 5 boxes" "$out"
+expect_eq "the bracket form is ticked" "2) [x] ordered with a bracket" "$(line 7)"
+expect_eq "the quoted item is ticked" "> - [x] quoted item" "$(line 8)"
+expect_eq "the last real box is ticked" "- [x] real two" "$(line 12)"
+expect_eq "the first fence is untouched" "- [ ] template line, not a task" "$(line 4)"
+expect_eq "the second fence is untouched" "* [ ] another template" "$(line 10)"
+out=$(tick 5 --match "template line"); rc=$?
+expect_code "--match cannot reach into a fence" 1 "$rc" "$out"
+expect_has "it fits no box" "fits no box" "$out"
+
+echo "tick.py and an edit by someone else"
+# A peer ticks another box between this run's read and its write. Writing the old body back
+# would undo it.
+fresh "$B1"
+sed '5s/\[ \]/[x]/' "$GH_STUB/body" >"$GH_STUB/peer-edit"
+out=$(tick 5 --line 1); rc=$?
+expect_code "a body that changed since the read is refused" 1 "$rc" "$out"
+expect_has "it says why" "changed since it was read" "$out"
+expect_eq "no edit call" 0 "$(edits)"
+expect_same "the peer's body stands" "$GH_STUB/peer-edit" <(body)
+rm -f "$GH_STUB/peer-edit"
+out=$(tick 5 --line 1); rc=$?
+expect_code "the next run works from the new body" 0 "$rc" "$out"
+expect_eq "this run's box is ticked" "- [x] write the parser" "$(line 2)"
+expect_eq "the peer's box is still ticked" "- [x] ship the parser docs" "$(line 5)"
+
+echo "tick.py line ends"
+# The body is read from JSON, byte for byte. gh -q, used before, printed a line end of its own
+# after the body, and an edit that sent it back would grow the stored body on every run.
+fresh "$B1"
+size0=$(wc -c <"$GH_STUB/body" | tr -d ' ')
+out=$(tick 5 --line 1); rc=$?
+expect_code "first run" 0 "$rc" "$out"
+out=$(tick 5 --line 3); rc=$?
+expect_code "second run" 0 "$rc" "$out"
+expect_eq "two runs leave the body the same size" "$size0" "$(wc -c <"$GH_STUB/body" | tr -d ' ')"
+export GH_STUB="$T/world.noeol"; mkdir -p "$GH_STUB"; export TICK_BACKUP_DIR="$GH_STUB/backups"
+printf -- '- [ ] one\n- [ ] two' >"$GH_STUB/body"
+out=$(tick 5 --all); rc=$?
+expect_code "a body with no final line end" 0 "$rc" "$out"
+expect_eq "it is stored without one" "- [x] one
+- [x] twoEND" "$(cat "$GH_STUB/body"; printf END)"
+
+echo "tick.py usage"
+fresh "$B1"
+out=$(tick --all); rc=$?
+expect_code "no issue is a usage error" 2 "$rc" "$out"
+out=$(tick 5); rc=$?
+expect_code "no selector is a usage error" 2 "$rc" "$out"
+out=$(tick 5 --all --match x); rc=$?
+expect_code "two selectors is a usage error" 2 "$rc" "$out"
+out=$(tick 5 --line 0); rc=$?
+expect_code "--line 0 is a usage error" 2 "$rc" "$out"
+out=$(tick 5 6 --all); rc=$?
+expect_code "two issues is a usage error" 2 "$rc" "$out"
+[ -f "$GH_STUB/calls" ] && no "usage errors make no gh call" "$(cat "$GH_STUB/calls")" || ok "usage errors make no gh call"
+
+echo "tick.py runs at once"
+# Two runs on one issue, each ticking its own box. Without the per-issue lock, the second run read
+# the body before the first one's edit, saw it change before its own edit, and refused.
+fresh "$B1"; touch "$GH_STUB/slow"
+( "$TICK" 5 --match "write the parser" >"$GH_STUB/run.1" 2>&1; echo $? >"$GH_STUB/run.1.rc" ) &
+( "$TICK" 5 --match "write the tests" >"$GH_STUB/run.2" 2>&1; echo $? >"$GH_STUB/run.2.rc" ) &
+wait
+expect_eq "the first run exits 0" 0 "$(cat "$GH_STUB/run.1.rc")"
+expect_eq "the second run exits 0" 0 "$(cat "$GH_STUB/run.2.rc")"
+expect_eq "the first run's box is ticked" "- [x] write the parser" "$(line 2)"
+expect_eq "the second run's box is ticked" "- [x] write the tests" "$(line 4)"
+expect_eq "two edit calls" 2 "$(edits)"
+expect_eq "two backups, nothing else in the backup folder" 2 "$(ls -A "$TICK_BACKUP_DIR" | wc -l | tr -d ' ')"
+expect_eq "no lock file left" 0 "$(ls -A "$TICK_LOCK_DIR" | wc -l | tr -d ' ')"
+
+# The same with a backup folder of its own for each run. The lock must not follow the backups.
+fresh "$B1"; touch "$GH_STUB/slow"
+( "$TICK" 5 --match "write the parser" --backup-dir "$GH_STUB/bk1" >"$GH_STUB/run.1" 2>&1; echo $? >"$GH_STUB/run.1.rc" ) &
+( "$TICK" 5 --match "write the tests" --backup-dir "$GH_STUB/bk2" >"$GH_STUB/run.2" 2>&1; echo $? >"$GH_STUB/run.2.rc" ) &
+wait
+expect_eq "different backup folders: the first run exits 0" 0 "$(cat "$GH_STUB/run.1.rc")"
+expect_eq "different backup folders: the second run exits 0" 0 "$(cat "$GH_STUB/run.2.rc")"
+expect_eq "different backup folders: the first run's box is ticked" "- [x] write the parser" "$(line 2)"
+expect_eq "different backup folders: the second run's box is ticked" "- [x] write the tests" "$(line 4)"
+
+fresh "$B1"
+out=$(env -u TICK_LOCK_DIR XDG_STATE_HOME="$T/xdg" "$TICK" 5 --line 1 2>&1); rc=$?
+expect_code "the default lock folder" 0 "$rc" "$out"
+[ -d "$T/xdg/claude-kit/issue-locks" ] && ok "it is under the state folder, not the backup folder" || no "it is under the state folder, not the backup folder" "$(ls -R "$T/xdg" 2>&1)"
+
+echo "tick.py fences, comments and spacing, as the page shows them"
+# A ``` line inside a ```` fence is code, not the end of the fence.
+fresh '- [x] real
+````md
+```
+- [ ] template
+```
+````
+- [ ] after'
+out=$(tick 5 --line 2); rc=$?
+expect_code "a fence inside a longer fence" 0 "$rc" "$out"
+expect_eq "box 2 is the one after the outer fence" "- [x] after" "$(line 7)"
+expect_eq "the template inside both fences is untouched" "- [ ] template" "$(line 4)"
+
+# A ~~~ line inside a ``` fence is code too.
+fresh '```
+~~~
+- [ ] template
+```
+- [ ] after'
+out=$(tick 5 --all); rc=$?
+expect_code "a tilde line inside a backtick fence" 0 "$rc" "$out"
+expect_has "it sees the one box the page shows" "ticked 1 of 1 boxes" "$out"
+expect_eq "the template is untouched" "- [ ] template" "$(line 3)"
+expect_eq "the box after the fence is ticked" "- [x] after" "$(line 5)"
+
+# Three backticks with a backtick in the rest of the line are inline code, not a fence.
+fresh '```npm install``` first
+- [ ] after
+- [ ] later'
+out=$(tick 5 --all); rc=$?
+expect_code "an inline triple backtick line" 0 "$rc" "$out"
+expect_has "it hides no box after it" "ticked 2 of 2 boxes" "$out"
+
+fresh '- [ ] before
+```
+- [ ] inside a fence that never closes'
+out=$(tick 5 --all); rc=$?
+expect_code "an unclosed fence" 0 "$rc" "$out"
+expect_has "it runs to the end of the body" "ticked 1 of 1 boxes" "$out"
+expect_eq "the box in it is untouched" "- [ ] inside a fence that never closes" "$(line 3)"
+
+fresh '<!--
+- [ ] hidden in a comment
+-->
+- [ ] shown
+<!-- - [ ] in a one-line comment -->'
+out=$(tick 5 --all); rc=$?
+expect_code "boxes in HTML comments" 0 "$rc" "$out"
+expect_has "only the shown box counts" "ticked 1 of 1 boxes" "$out"
+expect_eq "the box in the multi-line comment is untouched" "- [ ] hidden in a comment" "$(line 2)"
+expect_eq "the shown box is ticked" "- [x] shown" "$(line 4)"
+
+# Two to four spaces after the marker still make a task item on the page.
+fresh '-  [ ] two spaces
+- [ ] one space
+1.    [ ] four spaces'
+out=$(tick 5 --line 2); rc=$?
+expect_code "--line with a two-space marker before it" 0 "$rc" "$out"
+expect_eq "box 2 is the second box the page shows" "- [x] one space" "$(line 2)"
+expect_eq "box 1 is untouched" "-  [ ] two spaces" "$(line 1)"
+out=$(tick 5 --all); rc=$?
+expect_has "--all sees all three" "ticked 2 of 3 boxes" "$out"
+expect_eq "the two-space box is ticked" "-  [x] two spaces" "$(line 1)"
+expect_eq "the four-space box is ticked" "1.    [x] four spaces" "$(line 3)"
+
+echo "tick.py file modes"
+# Issue bodies of private repositories land in these files. Other users must not read them.
+fresh "$B1"; touch "$GH_STUB/mangle"
+out=$(umask 022; TICK_LOCK_DIR="$GH_STUB/locks" "$TICK" 5 --all 2>&1); rc=$?
+expect_code "a run under umask 022 that keeps its files (exit 3)" 3 "$rc" "$out"
+expect_eq "the backup folder it creates is 700" 700 "$(mode_of "$TICK_BACKUP_DIR")"
+expect_eq "the lock folder it creates is 700" 700 "$(mode_of "$GH_STUB/locks")"
+for kind in before after readback; do
+  f=$(ls "$TICK_BACKUP_DIR"/issue-5-*."$kind".md 2>/dev/null | head -n 1)
+  if [ -n "$f" ]; then expect_eq "the .$kind.md file is 600" 600 "$(mode_of "$f")"; else no "the .$kind.md file is 600 (no such file)" "$(ls -A "$TICK_BACKUP_DIR")"; fi
+done
+fresh "$B1"; mkdir -p "$GH_STUB/mine"; chmod 755 "$GH_STUB/mine"
+out=$(umask 022; "$TICK" 5 --line 1 --backup-dir "$GH_STUB/mine" 2>&1); rc=$?
+expect_code "a run with a backup folder that exists" 0 "$rc" "$out"
+expect_eq "a folder that exists keeps its mode" 755 "$(mode_of "$GH_STUB/mine")"
+
+echo "tick.py and folders or files it does not own"
+# Another user who can write in the backup folder could plant a symlink at the next .after.md
+# name, and the edit file would then be written through it. Such folders are refused before any
+# gh call.
+for m in 777 770; do
+  fresh "$B1"; mkdir -p "$GH_STUB/shared"; chmod "$m" "$GH_STUB/shared"
+  out=$(tick 5 --all --backup-dir "$GH_STUB/shared"); rc=$?
+  expect_code "a backup folder with mode $m is refused" 1 "$rc" "$out"
+  expect_has "the refusal names the folder ($m)" "backup folder $GH_STUB/shared is writable by other users" "$out"
+  [ -f "$GH_STUB/calls" ] && no "no gh call with a $m backup folder" "$(cat "$GH_STUB/calls")" || ok "no gh call with a $m backup folder"
+  expect_eq "nothing is written in the $m folder" 0 "$(ls -A "$GH_STUB/shared" | wc -l | tr -d ' ')"
+done
+fresh "$B1"; mkdir -p "$GH_STUB/sharedlocks"; chmod 777 "$GH_STUB/sharedlocks"
+out=$(TICK_LOCK_DIR="$GH_STUB/sharedlocks" "$TICK" 5 --all 2>&1); rc=$?
+expect_code "a lock folder with mode 777 is refused" 1 "$rc" "$out"
+expect_has "the refusal names the lock folder" "lock folder $GH_STUB/sharedlocks is writable by other users" "$out"
+[ -f "$GH_STUB/calls" ] && no "no gh call with a 777 lock folder" "$(cat "$GH_STUB/calls")" || ok "no gh call with a 777 lock folder"
+for m in 700 755; do
+  fresh "$B1"; mkdir -p "$GH_STUB/own"; chmod "$m" "$GH_STUB/own"
+  out=$(tick 5 --line 1 --backup-dir "$GH_STUB/own"); rc=$?
+  expect_code "a backup folder of this user with mode $m is accepted" 0 "$rc" "$out"
+done
+
+# A symlink planted at the .after.md name is refused and its target left alone. The stub plants
+# it on the view just before the edit, when the .before.md already names the run's stem.
+fresh "$B1"; mkdir -p "$GH_STUB/own"; chmod 700 "$GH_STUB/own"
+printf 'a file of the user\n' >"$GH_STUB/victim"
+printf '%s\n%s\n' "$GH_STUB/own" "$GH_STUB/victim" >"$GH_STUB/plant-after"
+out=$(tick 5 --all --backup-dir "$GH_STUB/own"); rc=$?
+expect_code "a symlink at the .after.md name is refused" 1 "$rc" "$out"
+expect_has "it says the name is taken" ".after.md is already there" "$out"
+expect_eq "the symlink's target is unchanged" "a file of the user" "$(cat "$GH_STUB/victim")"
+expect_eq "the planted symlink is left in place" 1 "$(find "$GH_STUB/own" -type l | wc -l | tr -d ' ')"
+expect_eq "no edit call" 0 "$(edits)"
+expect_eq "the run's own backup is removed" 0 "$(ls "$GH_STUB/own" | grep -c 'before')"
+
+echo "tick.py stopped by a signal"
+# A TERM while gh edits: the edit may have landed, so the restore command must be printed.
+fresh "$B1"; touch "$GH_STUB/edit-hangs"
+"$TICK" 5 --all >"$GH_STUB/run.out" 2>&1 &
+pid=$!
+for _ in $(seq 1 100); do [ -e "$GH_STUB/editing" ] && break; sleep 0.05; done
+kill -TERM "$pid"; wait "$pid"; rc=$?
+out=$(cat "$GH_STUB/run.out")
+expect_code "a TERM during the edit exits 130" 130 "$rc" "$out"
+expect_has "it prints the restore command" "  gh issue edit 5 --repo github.com/o/r --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_eq "the backup and the body sent are kept" 2 "$(ls "$TICK_BACKUP_DIR" | grep -cE '[.](before|after)[.]md$')"
+restore=$(printf '%s\n' "$out" | grep '^  gh issue edit' | sed 's/^  //')
+rm -f "$GH_STUB/edit-hangs"
+eval "$restore" >/dev/null
+expect_same "the printed command restores the body" "$GH_STUB/served" "$GH_STUB/body"
+
+# A TERM before the edit: nothing was sent, so there is nothing to restore.
+fresh "$B1"; touch "$GH_STUB/view-hangs"
+"$TICK" 5 --all >"$GH_STUB/run.out" 2>&1 &
+pid=$!
+for _ in $(seq 1 100); do [ -e "$GH_STUB/viewing" ] && break; sleep 0.05; done
+kill -TERM "$pid"; wait "$pid"; rc=$?
+out=$(cat "$GH_STUB/run.out")
+expect_code "a TERM before the edit exits 130" 130 "$rc" "$out"
+expect_not "it prints no restore command" "gh issue edit" "$out"
+expect_eq "it leaves no backup" 0 "$(ls -A "$TICK_BACKUP_DIR" | wc -l | tr -d ' ')"
+expect_eq "no edit call" 0 "$(edits)"
+
+echo "tick.py guards (tests/py/test_tick.py)"
+py_suite test_tick.py
+
+echo
+echo "$PASS passed, $FAIL failed"
+[ "$FAIL" = 0 ]

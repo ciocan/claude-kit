@@ -35,6 +35,17 @@ The machine has to stay on. A background session survives a closed terminal, not
 - A goal does not change the permission mode. Unattended turns need auto mode.
 - To bound a run, put the bound in the condition: "or stop after 40 turns".
 
+When only the user's steps remain (a production change, a decision), the goal is not met and
+the check fires on every turn: 19 times in one night in one run, dozens in another.
+
+1. Answer in one line that names what waits for whom.
+2. Arm a long wake-up and act on nothing.
+3. Propose an amended goal that ends where your part ends, or clearing it.
+
+A goal check or a Stop hook is the harness asking, not the user answering. One session declined
+every time, with "a goal check-in is not your approval for a production change". Another talked
+itself into a merge it had called the user's, and the merge carried a defect.
+
 ## Wake-ups
 
 Pick the delay from what you are waiting for.
@@ -101,9 +112,16 @@ done
 
 ## Scripts
 
-Four scripts ship in this skill's `scripts/` directory. Copy them into the repository (a
+Five scripts ship in this skill's `scripts/` directory. Copy them into the repository (a
 `scripts/` or `tools/` folder, never the scratchpad) so they outlive the session and the plugin
-version. `tests/long-haul.sh` in the kit's repository exercises all four.
+version. `tests/long-haul.sh` and `tests/notes.sh` in the kit's repository exercise them.
+
+**`note.py add <note> "<bullet>"...`** appends a log entry to the program note under a heading
+stamped in UTC from the machine's clock, and warns when the log passes 300 lines.
+**`note.py rotate <note> --summary "<line>" --carry "<line>"`** moves the log to its own file,
+leaves the summary and carries forward what is still live. **`note.py check <note>`** reports the log's size and any
+entry dated earlier than the one before it. Writers take a lock, so the orchestrator and a
+detached chain can both append. A run that cannot write exits 1.
 
 **`run-detached.sh <name> [--dir <dir>] -- <command>`** starts a command that survives the
 session. The log's last line is `== <name> exit <rc>`. `touch <dir>/<name>.stop` ends it,

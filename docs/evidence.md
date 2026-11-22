@@ -50,6 +50,69 @@ Counted by pattern over the 12,418 prompts. These measure wording, not intent.
 - The agent count covers one machine and only the transcripts that were still there.
 - Private repositories are counted and not named.
 
+## What went wrong on two long runs
+
+Counted in November 2026, after the numbers above. Two orchestrated sessions that used this
+kit were taken apart afterwards with the `retro` skill: one evidence agent per session, a neutral
+brief, fixed classes, times from the tracker. The most serious items were then reopened by hand.
+
+| | Run A, a new feature | Run B, changes across an existing site |
+|---|---|---|
+| Session length | about 64 hours | about 20 hours |
+| Context compactions | 13 | 4 |
+| Agents launched | 167 | 69 |
+| Pull requests merged | 34 | 4 |
+| Lines added | about 115,000 | about 90,000 |
+| of which tests | about 61,600 (53%) | about 30,400 (34%) |
+| of which source | about 47,800 (41%) | about 34,500 (38%) |
+| of which generated files | about 100 (under 1%) | about 23,400 (26%) |
+| Lines deleted | about 7,300 | about 14,100 |
+| Files created | 207 | 535 |
+| Existing files changed, moved or deleted | 162 | 849 |
+
+The line and file rows cover the 34 and the 4 pull requests. Each is counted from the pull
+request's diff at its merge, with renames detected. A line that one pull request added and a
+later one rewrote counts twice, so the rows measure work done, not the size of the result. The
+rest of the added lines are documentation.
+
+The two runs were different work. Run A was new code: more files created than changed, about 16
+lines added for each one deleted, over half of the additions tests. Run B was edits across an
+existing site: 849 existing files changed against 535 created, and a quarter of the additions
+generated files.
+
+| Class of incident | Run A | Run B |
+|---|---|---|
+| Shared-resource collisions, on things a worktree does not separate | 22 | 14 |
+| Context loss | 9 | 11, four of them within two hours of a compaction |
+| Rulings by the orchestrator later found wrong | 11, and 2 plans | 7 |
+| Defects merged and found later | 17 | 2 from the epic itself |
+| Findings caught before merge | about 368 | about 145 |
+| Agent misbehaviour (a false report, a skipped step, work outside the brief) | 11 | 19 |
+| Rulings taken by the orchestrator and not the user | about 96 of 107 | 138 of 142 |
+
+What the counts say:
+
+- Rules the kit had already written down were broken on the long run. The program note was to
+  take its times from the machine: its clock ran up to 15 hours ahead and went backwards three
+  times. The log was to be rotated at about 300 lines: it reached 4,913. Sessions were to agree
+  in writing: the message between them was refused, and they overwrote each other's code on a
+  shared backend eight or more times.
+- Scripts and checks held: a lock directory, a check that deployed code is a subset of the
+  tree, a save, change, restore and read-back routine for an account-wide setting, a kill switch
+  that kept unfinished work out of production, a skew check before each production deploy.
+- The worst escaped defect passed more than 70 review and verification runs, because every agent
+  worked from the same acceptance criteria. A review of the merged code found it after about 37
+  hours. The kill switch kept it from production.
+
+Limits of these counts: one agent classified each incident, from the session's notes in one case
+and from the transcript in the other, so the two columns are not measured the same way. "About"
+marks a lower bound summed from review reports. The 34 pull requests of run A are the ones that
+carry the epic in their title. The session's own note counts 41, and 5 more in a second
+repository, which the rows above leave out. Both projects are private and are not named.
+
+The kit's response: `shared-resources.md` with `lock.py` and `claims.py`,
+`note.py`, `tick.py`, the failure-mode pass, the rules on who decides, and the `retro` skill.
+
 ## How the way of working changed
 
 Read from the prompt history, with the month each practice first appears.

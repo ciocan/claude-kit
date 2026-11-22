@@ -153,8 +153,9 @@ compacted, restarted and rate-limited along the way, and you are away for most o
   holds, and a dated log. It is what every restarted session reads first.
 - A paste file with the commands only you can run, numbered, in order.
 - Long jobs started detached, each ending in a marker line, each with a watcher or a scheduled
-  check. Four scripts ship for this: detached runs, follow-ups, chains of steps, and a merge
-  train that merges PRs in order and stops at the first doubt.
+  check. Scripts ship for this: detached runs, follow-ups, chains of steps, a merge train that
+  merges PRs in order and stops at the first doubt, and a note script that stamps every log
+  entry from the machine's clock.
 
 ### Your part
 
@@ -211,6 +212,7 @@ full list of stalls with their cost in
 | "I'm going to sleep, anything needed from me?" | blockers cleared now, a queue for the night, a recap in the morning |
 | "cleanup" | servers stopped, merged worktrees removed, disk reported |
 | "/goal ...", "do not stop until it is done and verified" | a run that lasts days: a program note, watchers, a recap each morning |
+| "do a retro on those sessions" | counts from the transcripts and the tracker, incidents by class, what to change |
 
 If a sentence does not load the skill you expected, name it: `/flow:orchestrate`,
 `/flow:status-report`, and so on.
@@ -239,6 +241,34 @@ If a sentence does not load the skill you expected, name it: `/flow:orchestrate`
 9. **Close the day with "cleanup".** Worktrees, containers and dev servers pile up fast when
    three agents work in parallel.
 
+## What the kit does not solve
+
+Two long runs were taken apart afterwards, one of 64 hours and one of 20. The counts are in
+[evidence](evidence.md). Three limits came out of them, and each has a partial answer only.
+
+- **A worktree separates files and nothing else.** Agents in ten worktrees still share one
+  database, one hosted backend, one auth provider, one payment sandbox, the CI runners and the
+  machine's memory. The two runs had 22 and 14 collisions on those. The kit's answer is a
+  checklist to run before the first launch, with a lock script and a claims folder:
+  [shared resources](../plugins/flow/skills/orchestrate/references/shared-resources.md). Where
+  you can give each session its own backend, do that. A lock is the fallback.
+- **Nobody reads the whole diff.** The two runs added about 115,000 and 90,000 lines, a third
+  to a half of them tests. What replaces reading is the reviewer and verifier runs, which caught
+  about 368 and 145 findings before merge. They all work from the same acceptance criteria, so a
+  case the criteria never mention passes every one of them, as one defect did. The answers are a
+  failure-mode pass on the spec before filing, one review of the merged whole before an epic is
+  called done, and your own reading of anything with legal weight.
+- **Long sessions compact, and the note rots.** The first run compacted 13 times. What carries
+  the state across is the program note. Left to written rules it drifted: its clock ran 15
+  hours ahead and it grew to 4,913 lines. A script now writes the timestamps and rotates the
+  log. Context loss still happens: one run counted 11 cases, four of them within two hours of a
+  compaction.
+
+One more, about authority. The orchestrator took about 96 of 107 later rulings in one run and
+138 of 142 in the other, some on money, privacy and legal text. Most were sound. The failures
+were at the edges: a merge it had called yours, a production step ahead of your yes. Say which
+kinds of decision stay with you when the epic is filed, and answer approvals one at a time.
+
 ## Making it yours
 
 - **Models.** The three agents run on Opus: the implementer and verifier at high effort, the
@@ -260,6 +290,8 @@ If a sentence does not load the skill you expected, name it: `/flow:orchestrate`
 | Agents died at a usage limit | After the reset say "continue, the limits are reset". They resume with their context |
 | The review keeps finding things | After three rounds Claude closes the gaps itself or files follow-up issues. Ask for the list |
 | "Smoke tested" with no proof | Ask "how was it verified?". No commands and output means it was not |
+| CI goes red on tests your change did not touch while agents are working | Agents may share a test account or a dev backend. Ask "what do the worktrees share?" |
+| Two sessions keep breaking each other's dev deployment | Give each its own backend, or say "use the lock and the claims folder" |
 | The skill list looks stale after an update | `/reload-plugins` |
 
 ## Reading further
@@ -269,5 +301,7 @@ If a sentence does not load the skill you expected, name it: `/flow:orchestrate`
 - [Traps](../plugins/flow/skills/orchestrate/references/traps.md) and
   [git traps](../plugins/flow/skills/ship-pr/references/git-traps.md), each with the incident
   behind it
+- [Shared resources](../plugins/flow/skills/orchestrate/references/shared-resources.md): what a
+  worktree does not separate, and the guards that held
 - [Models and usage limits](../plugins/flow/skills/orchestrate/references/models-and-limits.md)
 - [A starter AGENTS.md](../plugins/flow/skills/repo-conventions/references/AGENTS.template.md)
