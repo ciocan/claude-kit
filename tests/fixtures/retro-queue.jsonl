@@ -31,3 +31,13 @@
 {"type":"attachment","timestamp":"2026-02-03T10:59:59.900Z","attachment":{"type":"queued_command","prompt":"deploy the docs site","commandMode":"prompt","origin":{"kind":"human"}}}
 {"type":"queue-operation","operation":"remove","timestamp":"2026-02-03T11:00:10.000Z","reason":"absorbed_mid_turn","content":"deploy the docs site"}
 {"type":"user","timestamp":"2026-02-03T11:00:40.000Z","origin":{"kind":"human"},"promptSource":"typed","message":{"role":"user","content":"deploy the docs site"}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T12:00:00.000Z","content":"yes, go ahead"}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T12:00:10.000Z","content":"yes, go ahead"}
+{"type":"attachment","timestamp":"2026-02-03T12:00:20.000Z","attachment":{"type":"queued_command","prompt":"yes, go ahead","commandMode":"prompt","origin":{"kind":"human"}}}
+{"type":"queue-operation","operation":"remove","timestamp":"2026-02-03T12:00:20.500Z","reason":"absorbed_mid_turn","content":"yes, go ahead"}
+{"type":"queue-operation","operation":"popAll","timestamp":"2026-02-03T12:00:30.000Z","content":"yes, go ahead"}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T12:10:00.000Z","content":"hold the release"}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T12:10:05.000Z","content":"hold the release"}
+{"type":"queue-operation","operation":"remove","timestamp":"2026-02-03T12:10:20.000Z","reason":"absorbed_mid_turn","content":"hold the release"}
+{"type":"attachment","timestamp":"2026-02-03T12:10:20.100Z","attachment":{"type":"queued_command","prompt":"hold the release","commandMode":"prompt","origin":{"kind":"human"}}}
+{"type":"queue-operation","operation":"popAll","timestamp":"2026-02-03T12:10:30.000Z","content":"hold the release"}

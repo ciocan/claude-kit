@@ -12,7 +12,8 @@ Output:
   (default)         the counts as text on stdout
   --json            the same counts as one JSON object on stdout
   --user-messages   every message counted as the user's, one per line:
-                    <timestamp> TAB <typed|queued> TAB <first 200 characters, newlines as spaces>
+                    <timestamp> TAB <typed|queued|answer> TAB <first 200 characters, newlines as
+                    spaces>. An answer reads "<answer> (to: <question>)".
   --out FILE        also write a chronological digest for an evidence agent to read
 
 What each count means:
@@ -33,6 +34,10 @@ What each count means:
                        queue on its way to a system record.
   interrupts           "[Request interrupted by user ..." markers.
   questions to user    AskUserQuestion tool calls.
+  answers to questions results of those calls that carry an answer, paired through the tool-use
+                       id. They are the user's words but not messages: --user-messages lists them
+                       as kind "answer", and they are not in the user message count. A question
+                       refused or dismissed counts as declined.
   launches             Agent (or the older Task) tool calls, by subagent_type and model. A launch
                        with no subagent_type is "(default)"; with no model, "(inherit)".
   agent messages sent  SendMessage tool calls, that is messages to a running agent.
@@ -138,6 +143,9 @@ DENIAL_TEXTS = [
 ]
 
 LAUNCH_TOOLS = ('Agent', 'Task')
+# The fixed words around the answers in an AskUserQuestion result.
+ANSWER_LEAD = re.compile(r'^\s*(?:Your questions have been answered|The user answered):\s*')
+ANSWER_TAIL = re.compile(r'\s*You can now continue with these answers in mind\.\s*$')
 TOKEN_FIELDS = ('input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens', 'output_tokens')
 PROGRESS_MIN_BYTES = 20 * 1024 * 1024
 
@@ -246,6 +254,21 @@ def user_command(text):
     return None
 
 
+def answer_text(result, body):
+    """An answer to AskUserQuestion as (listing text, digest text). The record's toolUseResult
+    maps each question to the chosen label, labels joined by commas, or the user's own words.
+    Older records carry only the result text: '"question"="answer", ...'."""
+    answers = result.get('answers') if isinstance(result, dict) else None
+    pairs = [(str(q), str(a)) for q, a in answers.items()] if isinstance(answers, dict) else []
+    if pairs:
+        return ('; '.join(f'{a} (to: {q})' for q, a in pairs),
+                '; '.join(f'"{q}" = "{a}"' for q, a in pairs))
+    shown = ANSWER_LEAD.sub('', ANSWER_TAIL.sub('', body.strip())).strip()
+    pairs = re.findall(r'"([^"]*)"="([^"]*)"', shown)
+    listed = '; '.join(f'{a} (to: {q})' for q, a in pairs) if pairs else shown
+    return listed, shown
+
+
 def merge_key(text, command):
     """What two sightings of one message share. A shell command is queued as the bare command
     and delivered wrapped in <bash-input>, so it is keyed without its bang."""
@@ -298,7 +321,13 @@ class Messages:
                      if m['state'] == 'live' and m['mergeable'] and source not in m['sources']]
             near = [m for m in cands if any(abs(sec - s) <= self.window for s in m['secs'])]
             if near:
-                return self._merge(near[-1], sec, source, queued, text, command), False
+                # The queue hands messages over in order. When the same text waits more than once,
+                # a delivery belongs to the oldest copy not yet delivered: first one a remove
+                # record already named, then the oldest. Otherwise the nearest earlier sighting.
+                fresh = [m for m in near if 'enqueue' in m['sources'] and not self._sighted(m)]
+                fresh.sort(key=lambda m: not m['removed'])
+                target = fresh[0] if fresh else near[-1]
+                return self._merge(target, sec, source, queued, text, command), False
             # A queued message waits until the session is free, which can be long after the
             # window. While it is still in the queue, its delivery is the same message.
             waiting = [m for m in cands if source == 'user' and self._waiting(m) and m['secs'][0] <= sec]
@@ -307,7 +336,7 @@ class Messages:
                 return self._merge(waiting[0], sec, source, queued, text, command), False
         m = {'ts': ts or '', 'text': text, 'key': key, 'raw': raw if raw is not None else text,
              'sources': {source}, 'secs': [sec] if sec is not None else [], 'queued': queued,
-             'mergeable': mergeable, 'command': command, 'state': 'live', 'delivered': False,
+             'mergeable': mergeable, 'command': command, 'state': 'live', 'removed': False,
              'line': None}
         self.items.append(m)
         self.by_key[key].append(m)
@@ -323,15 +352,21 @@ class Messages:
         return m
 
     @staticmethod
+    def _sighted(m):
+        return bool(m['sources'] & {'attachment', 'user'})
+
+    @staticmethod
     def _waiting(m):
-        return m['state'] == 'live' and m['sources'] == {'enqueue'} and not m['delivered'] and m['secs']
+        return m['state'] == 'live' and m['sources'] == {'enqueue'} and not m['removed'] and m['secs']
 
     def delivered(self, text):
-        """A remove record names a queued text that was handed to the session."""
-        for m in self.by_key.get(norm(text), ()):
-            if self._waiting(m):
-                m['delivered'] = True
-                return
+        """A remove record names a queued text that was handed to the session. It belongs to the
+        oldest copy whose delivery was already seen, else to the oldest copy still waiting."""
+        copies = [m for m in self.by_key.get(norm(text), ())
+                  if m['state'] == 'live' and 'enqueue' in m['sources'] and not m['removed']]
+        copies.sort(key=lambda m: not self._sighted(m))
+        if copies:
+            copies[0]['removed'] = True
 
     def withdraw(self, content, ts):
         """popAll puts every waiting message back into the prompt, joined by newlines."""
@@ -398,7 +433,7 @@ def scan(args, dg):
         'first': None, 'last': None, 'records': 0, 'unparsed': 0, 'malformed': 0, 'sidechain': 0,
         'compactions': [], 'compaction_summaries': 0,
         'system_lines': collections.Counter(), 'queued_system_lines': collections.Counter(),
-        'interrupts': 0, 'asked': 0, 'launches': collections.Counter(), 'sent': 0,
+        'interrupts': 0, 'asked': 0, 'asks': set(), 'answers': [], 'declined': 0, 'launches': collections.Counter(), 'sent': 0,
         'tool_errors': 0, 'denials': collections.Counter(), 'stop_hook': 0,
         'goal_feedback': 0, 'goal_notifications': 0, 'turns': {}, 'output_tokens': 0,
     }
@@ -543,8 +578,20 @@ def scan(args, dg):
                         denial = next((k for k, rx in DENIAL_TEXTS if rx.search(body[:400])), None)
                     if p.get('is_error'):
                         c['tool_errors'] += 1
+                    tid = p.get('tool_use_id') if isinstance(p.get('tool_use_id'), str) else None
+                    asked = tid in c['asks']
+                    c['asks'].discard(tid)
                     if denial:
                         c['denials'][str(denial)] += 1
+                    if asked and (denial or p.get('is_error')):
+                        c['declined'] += 1
+                        dg.emit(f'[{t}] USER DECLINED THE QUESTION ({denial or "error"}): {" ".join(body.split())[:400]}')
+                    elif asked:
+                        listed, shown = answer_text(o.get('toolUseResult'), body)
+                        if listed:
+                            c['answers'].append((ts, listed))
+                            dg.emit(f'[{t}] USER ANSWERED: {shown[:3000]}')
+                    elif denial:
                         dg.emit(f'[{t}] DENIED ({denial}): {" ".join(body.split())[:400]}')
                     elif p.get('is_error'):
                         dg.emit(f'[{t}] TOOL-ERROR: {" ".join(body.split())[:400]}')
@@ -589,6 +636,8 @@ def scan(args, dg):
                     i, name = p.get('input') or {}, p.get('name')
                     if name == 'AskUserQuestion':
                         c['asked'] += 1
+                        if isinstance(p.get('id'), str):
+                            c['asks'].add(p['id'])
                         dg.emit(f'[{t}] ASKED THE USER: {str(i)[:600]}')
                     elif name in LAUNCH_TOOLS:
                         role = str(i.get('subagent_type') or '(default)')
@@ -668,6 +717,8 @@ def summary(c, msgs):
         'queued_system_lines': dict(sorted(c['queued_system_lines'].items())),
         'interrupts': c['interrupts'],
         'questions_to_user': c['asked'],
+        'answers_to_questions': len(c['answers']),
+        'questions_declined': c['declined'],
         'launches': {'total': sum(c['launches'].values()), 'by_role': dict(by_role)},
         'agent_messages_sent': c['sent'],
         'tool_errors': c['tool_errors'],
@@ -696,7 +747,8 @@ def print_text(s):
     print(f"withdrawn from the queue: {um['withdrawn']}")
     print('system lines: ' + (', '.join(f'{k} {v}' for k, v in s['system_lines'].items()) or 'none'))
     print('queued system lines: ' + (', '.join(f'{k} {v}' for k, v in s['queued_system_lines'].items()) or 'none'))
-    print(f"interrupts: {s['interrupts']}, questions to the user: {s['questions_to_user']}")
+    print(f"interrupts: {s['interrupts']}, questions to the user: {s['questions_to_user']}, "
+          f"answers to questions: {s['answers_to_questions']}, declined: {s['questions_declined']}")
     print(f"subagent launches: {s['launches']['total']}")
     for role, models in sorted(s['launches']['by_role'].items()):
         for model, n in sorted(models.items()):
@@ -741,9 +793,11 @@ def main():
         dg.write(args.out)
 
     if args.user_messages:
-        for m in sorted(msgs.live(), key=lambda m: m['ts']):
-            text = ' '.join(m['text'].replace('\t', ' ').splitlines())[:200]
-            print(f"{m['ts']}\t{'queued' if m['queued'] else 'typed'}\t{text}")
+        rows = [(m['ts'], 'queued' if m['queued'] else 'typed', m['text']) for m in msgs.live()]
+        rows += [(ts, 'answer', text) for ts, text in c['answers']]
+        for ts, kind, text in sorted(rows, key=lambda r: r[0]):
+            text = ' '.join(text.replace('\t', ' ').splitlines())[:200]
+            print(f"{ts}\t{kind}\t{text}")
         return 0
     s = summary(c, msgs)
     if args.json:

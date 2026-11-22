@@ -53,6 +53,7 @@ expect_eq "two compactions" 2 "$(jget "$J" "len(d['compactions'])")"
 expect_eq "pre-compaction token counts" '[175500, 180000]' "$(jget "$J" "sorted(c['pre_tokens'] for c in d['compactions'])")"
 expect_eq "compaction timestamp and trigger" '["2026-01-10T11:30:00.000Z", "manual"]' "$(jget "$J" "[d['compactions'][1]['timestamp'], d['compactions'][1]['trigger']]")"
 expect_eq "one compaction summary" 1 "$(jget "$J" "d['compaction_summaries']")"
+expect_eq "answers to questions, counted apart from messages" '[2, 1]' "$(jget "$J" "[d['answers_to_questions'], d['questions_declined']]")"
 expect_eq "user messages in total" 12 "$(jget "$J" "d['user_messages']['total']")"
 expect_eq "typed messages" 7 "$(jget "$J" "d['user_messages']['typed']")"
 expect_eq "queued messages" 5 "$(jget "$J" "d['user_messages']['queued']")"
@@ -64,9 +65,9 @@ expect_eq "launches by role and model" \
   '{"(default)": {"(inherit)": 1}, "flow:implementer": {"opus": 2}, "flow:reviewer": {"sonnet": 1}, "flow:verifier": {"opus": 1}}' \
   "$(jget "$J" "d['launches']['by_role']")"
 expect_eq "messages sent to running agents" 1 "$(jget "$J" "d['agent_messages_sent']")"
-expect_eq "questions put to the user" 1 "$(jget "$J" "d['questions_to_user']")"
-expect_eq "tool errors" 3 "$(jget "$J" "d['tool_errors']")"
-expect_eq "permission denials by kind" '{"by_kind": {"permission-rule": 1, "user-rejected": 1}, "total": 2}' "$(jget "$J" "d['permission_denials']")"
+expect_eq "questions put to the user" 3 "$(jget "$J" "d['questions_to_user']")"
+expect_eq "tool errors" 4 "$(jget "$J" "d['tool_errors']")"
+expect_eq "permission denials by kind" '{"by_kind": {"permission-rule": 1, "user-rejected": 2}, "total": 3}' "$(jget "$J" "d['permission_denials']")"
 expect_eq "stop-hook prompts" 2 "$(jget "$J" "d['stop_hook_prompts']")"
 expect_eq "goal checks" '{"feedback": 1, "notifications": 1}' "$(jget "$J" "d['goal_checks']")"
 expect_eq "interrupts" 1 "$(jget "$J" "d['interrupts']")"
@@ -90,7 +91,11 @@ expect_eq "a wider window merges the late re-delivery too" 11 "$(jget "$J9" "d['
 echo "transcript-digest.py: --user-messages"
 L=$(digest --user-messages "$F"); rc=$?
 expect_code "--user-messages runs" 0 "$rc" "$L"
-expect_eq "one line per message" 12 "$(printf '%s\n' "$L" | grep -c .)"
+expect_eq "one line per typed or queued message" 12 "$(printf '%s\n' "$L" | grep -cE "$(printf '\t(typed|queued)\t')")"
+expect_eq "one line per answered question" 2 "$(printf '%s\n' "$L" | grep -c "$(printf '\tanswer\t')")"
+expect_has "an answer is listed with its time and kind" "$(printf '2026-01-10T10:42:00.000Z\tanswer\tAfter review')" "$L"
+expect_has "an answer in the older result shape is listed" "$(printf '2026-01-10T10:42:40.000Z\tanswer\tmain')" "$L"
+expect_not "a declined question is not listed as an answer" "Delete the old tags" "$L"
 expect_has "a typed message, tab separated" "$(printf '2026-01-10T10:00:00.000Z\ttyped\tfix the login redirect')" "$L"
 expect_has "a message queued and absorbed mid-turn" "$(printf '2026-01-10T10:05:00.000Z\tqueued\tok release then')" "$L"
 expect_eq "absorbed message listed once" 1 "$(printf '%s\n' "$L" | grep -c 'ok release then')"
@@ -126,14 +131,18 @@ expect_has "digest shows a harness line as system" "SYSTEM agents-stopped: 2 bac
 expect_has "digest shows a denial" "DENIED (permission-rule)" "$dg"
 expect_has "digest shows a message to an agent" "SEND TO reviewer" "$dg"
 expect_has "digest shows a question to the user" "ASKED THE USER" "$dg"
+expect_has "digest shows the answer with its time" '[01-10T10:42] USER ANSWERED: "Release now or after review?" = "After review"; "Who reviews it?" = "The second reviewer"' "$dg"
+expect_has "digest shows an answer in the older result shape" '[01-10T10:42] USER ANSWERED: "Which branch?"="main".' "$dg"
+expect_has "digest shows a declined question" "[01-10T10:42] USER DECLINED THE QUESTION (user-rejected)" "$dg"
+expect_has "text gives the answers" "answers to questions: 2, declined: 1" "$out"
 expect_eq "digest shows the agent report once" 1 "$(grep -c 'AGENT REPORT: <task-notification>' "$D")"
 
 echo "transcript-digest.py: the queue"
 JQ=$(digest --json "$Q"); rc=$?
 expect_code "--json on the queue fixture runs" 0 "$rc" "$JQ"
 LQ=$(digest --user-messages "$Q")
-expect_eq "queue fixture: user messages in total" 7 "$(jget "$JQ" "d['user_messages']['total']")"
-expect_eq "queue fixture: typed and queued" '[2, 5]' "$(jget "$JQ" "[d['user_messages']['typed'], d['user_messages']['queued']]")"
+expect_eq "queue fixture: user messages in total" 9 "$(jget "$JQ" "d['user_messages']['total']")"
+expect_eq "queue fixture: typed and queued" '[2, 7]' "$(jget "$JQ" "[d['user_messages']['typed'], d['user_messages']['queued']]")"
 expect_eq "a queued shell command counts once" 1 "$(printf '%s\n' "$LQ" | grep -c 'npm run lint')"
 expect_has "a queued shell command shows with its bang" "$(printf '2026-02-03T09:00:00.000Z\tqueued\t!npm run lint')" "$LQ"
 expect_eq "queue fixture: shell commands" 2 "$(jget "$JQ" "d['user_messages']['shell_commands']")"
@@ -144,7 +153,10 @@ expect_not "a message pulled back from the queue is not listed" "ship it to prod
 expect_has "its replacement is listed" "$(printf 'queued\tship it to staging only')" "$LQ"
 expect_not "every message of a joined popAll is withdrawn" "then restart" "$LQ"
 expect_eq "a withdrawn message typed again counts once" 1 "$(printf '%s\n' "$LQ" | grep -c 'run the migration')"
-expect_eq "withdrawals are counted" 3 "$(jget "$JQ" "d['user_messages']['withdrawn']")"
+expect_eq "withdrawals are counted" 5 "$(jget "$JQ" "d['user_messages']['withdrawn']")"
+expect_eq "the same text queued twice, one delivered and one pulled back, counts once" 1 "$(printf '%s\n' "$LQ" | grep -c 'yes, go ahead')"
+expect_has "the delivered one keeps its own time" "$(printf '2026-02-03T12:00:00.000Z\tqueued\tyes, go ahead')" "$LQ"
+expect_eq "the same with the remove before the attachment" 1 "$(printf '%s\n' "$LQ" | grep -c 'hold the release')"
 expect_eq "a typed message repeating a queued one counts twice" 2 "$(printf '%s\n' "$LQ" | grep -c 'deploy the docs site')"
 for h in "Autonomous loop tick" "Autonomous loop check" "usage limit has reset" "Background agent" \
   "Nightly report" "Wake up and look"; do
@@ -153,7 +165,7 @@ done
 expect_eq "harness lines in the queue, by kind" \
   '{"agents-stopped": 1, "loop": 2, "meta": 1, "scheduled": 1, "usage-limit-reset": 1}' "$(jget "$JQ" "d['queued_system_lines']")"
 out=$(digest "$Q" --out "$T/queue.md")
-expect_has "text gives the withdrawals" "withdrawn from the queue: 3" "$out"
+expect_has "text gives the withdrawals" "withdrawn from the queue: 5" "$out"
 dq=$(cat "$T/queue.md" 2>/dev/null)
 expect_has "digest shows a withdrawal with its time" "[02-03T09:40] WITHDRAWN FROM THE QUEUE (queued 02-03T09:40): ship it to production" "$dq"
 expect_not "digest does not show a withdrawn message as sent" "USER (queued while busy): ship it to production" "$dq"
