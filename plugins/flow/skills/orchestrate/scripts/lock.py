@@ -15,7 +15,7 @@ process that took it, because an agent takes it in one shell and releases it fro
 Ownership is the label, not a pid: every shell an agent runs is new, so pass the same label each
 time. The holder may acquire again. A lock is never broken for its age. The owner releases it, or
 a person decides and runs release with --force. A lock file without an owner line counts as held
-by "unknown".
+by "unknown", and only --force releases it: HELD then names no --owner command.
 
 Prints one of ACQUIRED, ALREADY HELD, RELEASED, FORCED release, FREE or HELD (with the owner, the
 time, the age, the note and how to release it).
@@ -172,10 +172,17 @@ def main(argv):
         if WAIT_RE.match(e):
             a = age(int(time.time()) - int(e))
         print('HELD %s by %s since %s (%s, note: %s)' % (name, o, t, a, n))
-        print('  It is never broken for age. The owner releases it: %s release %s --owner %s%s'
-              % (sys.argv[0], name, o, dir_arg))
-        print('  or a person decides it is abandoned and runs: %s release %s --force%s'
-              % (sys.argv[0], name, dir_arg))
+        recorded = read_field(lock, 'owner', '')
+        if recorded:
+            # Quoted, so the line runs as printed whatever the label holds.
+            print('  It is never broken for age. The owner releases it: %s release %s --owner %s%s'
+                  % (sys.argv[0], name, shlex.quote(recorded), dir_arg))
+            print('  or a person decides it is abandoned and runs: %s release %s --force%s'
+                  % (sys.argv[0], name, dir_arg))
+        else:
+            # No owner is recorded, so no label releases it. Only --force does.
+            print('  No owner is recorded, so only a person can release it, with: %s release %s '
+                  '--force%s' % (sys.argv[0], name, dir_arg))
 
     def try_acquire():
         """True when taken now or already ours, False when another holds it."""

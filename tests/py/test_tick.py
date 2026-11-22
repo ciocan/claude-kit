@@ -100,6 +100,66 @@ def tests(tmp):
     check('a quote with space before the marker is a box',
           tick.box_states([b'>  > * [ ] deep']) == [b' '])
 
+    # Fences and comments by CommonMark's rules, as the page shows them.
+    def states_of(text):
+        return tick.box_states(tick.split_lines(text))
+
+    cases = [
+        ('a ``` line inside a ```` fence does not close it',
+         b'- [x] real\n````md\n```\n- [ ] template\n```\n````\n- [ ] after\n',
+         [b'x', None, None, None, None, None, b' ']),
+        ('a ~~~ line inside a ``` fence does not close it',
+         b'```\n~~~\n- [ ] template\n```\n- [ ] after\n', [None, None, None, None, b' ']),
+        ('a closing fence with text after it does not close',
+         b'```\n``` x\n- [ ] code\n```\n- [ ] out\n', [None, None, None, None, b' ']),
+        ('a backtick in the info string means no fence',
+         b'```npm install``` first\n- [ ] after\n', [None, b' ']),
+        ('a tilde fence may hold backticks in its info string',
+         b'~~~ `x`\n- [ ] code\n~~~\n- [ ] out\n', [None, None, None, b' ']),
+        ('an unclosed fence runs to the end', b'- [ ] a\n```\n- [ ] code\n', [b' ', None, None]),
+        ('a fence indented three spaces opens', b'   ```\n- [ ] code\n```\n', [None, None, None]),
+        ('a fence indented four spaces at the top does not open',
+         b'text\n\n    ```\n- [ ] a\n', [None, None, None, b' ']),
+        ('a fence inside a list item may be indented past the item',
+         b'- [ ] step\n    ```\n    - [ ] code\n    ```\n- [ ] next\n',
+         [b' ', None, None, None, b' ']),
+        ('a fence in a quote ends with the quote', b'> ```\n> - [ ] code\n- [ ] out\n',
+         [None, None, b' ']),
+        ('a quoted ``` line does not close a fence outside the quote',
+         b'```\n> ```\n- [ ] code\n```\n- [ ] out\n', [None, None, None, None, b' ']),
+        ('fences with CRLF line ends', b'```\r\n- [ ] code\r\n```\r\n- [ ] out\r\n',
+         [None, None, None, b' ']),
+        ('a box in a multi-line comment is hidden',
+         b'<!--\n- [ ] hidden\n-->\n- [ ] shown\n', [None, None, None, b' ']),
+        ('a one-line comment hides its line only',
+         b'<!-- - [ ] hidden -->\n- [ ] shown\n', [None, b' ']),
+        ('a comment opened inside a fence is code', b'```\n<!--\n```\n- [ ] out\n',
+         [None, None, None, b' ']),
+        ('a fence opened inside a comment is not one', b'<!--\n```\n-->\n- [ ] out\n',
+         [None, None, None, b' ']),
+        ('one to four spaces after the marker', b'-  [ ] two\n1.    [ ] four\n-     [ ] five\n',
+         [b' ', b' ', None]),
+    ]
+    for name, text, want in cases:
+        got = states_of(text)
+        check(name, got == want, got)
+
+    # The guard uses the same definition: a box line in a fence is not a box to change.
+    fenced = b'- [ ] real\n```\n- [ ] template\n```\n'
+    bad, refusal = guard(fenced, fenced.replace(b'- [ ] template', b'- [x] template'), [3])
+    check('the guard refuses a change to a box line inside a fence',
+          bad == ['BAD line 3: not a checkbox line'], (bad, refusal))
+    spaced = b'-  [ ] two\n'
+    check('the guard takes a two-space marker',
+          guard(spaced, tick.build_edit(spaced, [1], b'x'), [1]) == ([], None))
+
+    # What a stop by INT or TERM prints: the restore command once the edit call has started.
+    check('a stop before the edit prints nothing', tick.interrupted_message(None) is None)
+    message = tick.interrupted_message('gh issue edit 5 --body-file /b/issue-5.before.md')
+    check('a stop during the edit prints the restore command',
+          message is not None and message.endswith('\n  gh issue edit 5 --body-file '
+                                                   '/b/issue-5.before.md'), message)
+
     # The edit keeps every byte but the bracket character.
     crlf = b'## Tasks\r\n- [ ] one\r\n- [X] two\r\n'
     check('an edit keeps CRLF line ends',
@@ -154,6 +214,7 @@ def tests(tmp):
     os.environ['PATH'] = stub_dir + os.pathsep + os.environ.get('PATH', '')
     os.environ['GH_STUB'] = world
     os.environ['TICK_BACKUP_DIR'] = os.path.join(world, 'backups')
+    os.environ['TICK_LOCK_DIR'] = os.path.join(world, 'locks')
     real_build = tick.build_edit
 
     def build_short(body, selected, want):

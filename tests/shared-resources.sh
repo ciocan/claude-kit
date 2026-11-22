@@ -123,12 +123,24 @@ expect_gone "the bad calls took no lock" "$D/db.lock"
 out=$("$L" status half --dir "$D" 2>&1); rc=$?
 expect_code "a half-written lock reads as held" 1 "$rc" "$out"
 expect_has "its owner is unknown" "HELD half by unknown" "$out"
+# No label releases a lock without an owner, so the hint must not offer one.
+expect_not "the hint offers no --owner for a lock without an owner" "--owner" "$out"
+expect_has "the hint offers --force" "release half --force --dir $D" "$out"
 out=$("$L" acquire half --owner alpha --dir "$D" 2>&1); rc=$?
 expect_code "a half-written lock cannot be acquired" 1 "$rc" "$out"
 out=$("$L" release half --owner unknown --dir "$D" 2>&1); rc=$?
 expect_code "the label 'unknown' does not release it" 1 "$rc" "$out"
 out=$("$L" release half --force --dir "$D" 2>&1); rc=$?
 expect_code "a half-written lock yields to --force" 0 "$rc" "$out"
+
+# The owner's release line runs as printed, whatever the label holds.
+"$L" acquire quoted --owner 'two words $HOME' --dir "$D" >/dev/null 2>&1
+out=$("$L" status quoted --dir "$D" 2>&1)
+hint=$(printf '%s\n' "$out" | sed -n 's/.*The owner releases it: //p')
+expect_has "the hint quotes the owner" "--owner 'two words \$HOME'" "$hint"
+out=$(eval "$hint" 2>&1); rc=$?
+expect_code "the printed release line releases the lock" 0 "$rc" "$out"
+expect_gone "the quoted owner's lock is gone" "$D/quoted.lock"
 
 "$L" acquire old --owner alpha --note "left behind" --dir "$D" >/dev/null 2>&1
 sed "s/^epoch=.*/epoch=$(( $(date +%s) - 3 * 3600 - 600 ))/" "$D/old.lock" >"$D/old.lock.new" && mv "$D/old.lock.new" "$D/old.lock"

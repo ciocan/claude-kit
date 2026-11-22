@@ -18,8 +18,10 @@ Usage:
   --backup-dir <dir>     where the body is saved before the edit
 
 A box is a list item with [ ], [x] or [X]: a bullet (-, *, +) or an ordered marker (1. or 1)),
-indented or inside a quote (> ). Lines inside a code fence (``` or ~~~) are never boxes, so
-template text is left alone. A box in a code block made by indentation alone is still counted.
+then one to four spaces, indented or inside a quote (> ). Lines inside a code fence (``` or ~~~,
+by CommonMark's rules) or an HTML comment (<!-- ... -->) are never boxes: the page does not show
+them as boxes, so template text is left alone and --line counts what the page shows. A box in a
+code block made by indentation alone is still counted.
 
 The body comes from `gh issue view <n> --json body` and is parsed from the JSON, so it is the
 body as stored, byte for byte. The shell version read it with `gh -q .body`, which prints the
@@ -37,20 +39,29 @@ and the read-back is compared in memory. A helper that read and wrote one file i
 expression got an empty file to read, sent it up, and blanked eleven issue bodies.
 
 Two runs on one machine never interleave: each run holds an flock on
-<backup-dir>/.issue-<n>.lock from the first read to the read-back, and waits up to
-TICK_LOCK_WAIT_S seconds for it. Just before the edit it reads the body once more and refuses if
+<lock-dir>/issue-<n>.lock from the first read to the read-back, and waits up to
+TICK_LOCK_WAIT_S seconds for it. The lock folder does not depend on the backup folder, so two
+runs with different --backup-dir values still share the lock. The lock name holds the issue
+number only: the same number in two repositories waits its turn, which costs a moment and
+harms nothing. Just before the edit it reads the body once more and refuses if
 it changed since the backup, so a box someone else ticked meanwhile is not undone. That second
 read narrows the window and cannot close it: GitHub has no conditional update, so an edit made in
 a browser or on another machine between that read and the edit is overwritten.
 
 On success only the backup is kept. When a run exits 3, the .after.md file it sent is kept beside
-the backup, and so is a .readback.md when the body read back differs from it.
+the backup, and so is a .readback.md when the body read back differs from it. The files are
+created with mode 0600 and the backup and lock folders, when this script creates them, with
+0700: a private repository's issue body must not be readable by other users of the machine.
 
 Exit codes: 0 done or nothing to do, 1 refused by a guard or by the selection, or another run
             holds the issue, 2 usage, 3 the body read back differs from what was sent,
-            130 stopped by INT or TERM (after the cleanup).
+            130 stopped by INT or TERM (after the cleanup). Once the edit call has started, the
+            stop prints the restore command and keeps the backup and the .after.md file, since
+            the edit may have landed.
 Env: TICK_BACKUP_DIR   backup dir when --backup-dir is not given
                        (default ${XDG_STATE_HOME:-$HOME/.local/state}/claude-kit/issue-bodies)
+     TICK_LOCK_DIR     folder of the per-issue locks
+                       (default ${XDG_STATE_HOME:-$HOME/.local/state}/claude-kit/issue-locks)
      TICK_LOCK_WAIT_S  seconds to wait for another run on the same issue (default 30)
 """
 import difflib
@@ -67,9 +78,20 @@ import sys
 import time
 
 # The one definition of a box line: optional space, quote marks, a bullet or an ordered marker,
-# then the brackets. Group 1 is the bracket character.
-BOX_RE = re.compile(rb'[ \t\r\f\v]*(?:>[ \t]*)*(?:[-*+]|[0-9]+[.)]) \[([ xX])\] ')
-FENCE_RE = re.compile(rb'[ \t]*(?:>[ \t]*)*(?:```|~~~)')
+# one to four spaces, then the brackets. Group 1 is the bracket character. box_states adds the
+# context: no box inside a code fence or an HTML comment.
+BOX_RE = re.compile(rb'[ \t\r\f\v]*(?:>[ \t]*)*(?:[-*+]|[0-9]+[.)])[ ]{1,4}\[([ xX])\] ')
+# The quote marks before a fence or a comment: each ">" may follow up to three spaces and take
+# one space after it.
+QUOTE_RE = re.compile(rb'(?:[ ]{0,3}>[ ]?)*')
+# A fence: spaces, then three or more backticks or tildes. Group 1 is the indent, group 2 the
+# run of fence characters, group 3 the rest of the line (the info string of an opening fence).
+# box_states allows up to three spaces of indent, counted from the content of the list item the
+# fence sits in.
+FENCE_RE = re.compile(rb'([ ]*)(`{3,}|~{3,})(.*)\Z', re.S)
+# A list item's marker and the spaces after it, to know where its content starts.
+ITEM_RE = re.compile(rb'([ ]*)(?:[-*+]|[0-9]+[.)])([ ]{1,4})(?=\S)')
+COMMENT_RE = re.compile(rb'[ ]{0,3}<!--')
 NUMBER_RE = re.compile(r'[0-9]+(?:[.][0-9]+)?\Z')
 DIGITS_RE = re.compile(r'[0-9]+\Z')
 SPACE = b' \t\n\r\x0b\x0c'
@@ -119,18 +141,53 @@ def split_lines(body):
 def box_states(lines):
     """For each line, the bracket character of its box, or None when it is not a box.
 
-    A line that opens or closes a code fence flips the fence, and no line inside one is a box.
+    No line inside a code fence or an HTML comment is a box. The fence rules are CommonMark's,
+    which GitHub follows. A fence opens on three or more backticks or tildes, indented up to
+    three spaces past the content of the list item it sits in, or inside a quote. A backtick
+    fence does not open when its info string holds a backtick: ```npm install``` on a line of
+    its own is inline code, not a fence. Only a line of the same character, at least as long,
+    with nothing but spaces after it closes the fence, so a ~~~ line inside a ``` fence, or a
+    ``` line inside a ```` fence, is code. A fence that never closes runs to the end of the body,
+    or to the end of the quote it opened in. A comment opens with <!-- at the start of a line
+    and runs to the line that holds -->. A one-line comment hides only its own line.
     """
     states = []
-    in_fence = False
+    fence = None        # (character, length, deepest indent, quote depth) of the open fence
+    in_comment = False
+    item = None         # where the content of the current list item starts, or None
     for line in lines:
         state = None
-        if FENCE_RE.match(line):
-            in_fence = not in_fence
-        elif not in_fence:
-            m = BOX_RE.match(line)
-            if m:
-                state = m.group(1)
+        quote = QUOTE_RE.match(line)
+        depth, rest = quote.group(0).count(b'>'), line[quote.end():]
+        if fence is not None and depth < fence[3]:
+            fence = None    # the quote that held the fence has ended, and the fence with it
+        if fence is not None:
+            m = FENCE_RE.match(rest)
+            if (m and depth == fence[3] and len(m.group(1)) <= fence[2]
+                    and m.group(2)[:1] == fence[0] and len(m.group(2)) >= fence[1]
+                    and not m.group(3).strip(SPACE)):
+                fence = None
+        elif in_comment:
+            if b'-->' in line:
+                in_comment = False
+        else:
+            reach = (item or 0) + 3
+            m = FENCE_RE.match(rest)
+            c = COMMENT_RE.match(rest)
+            if (m and len(m.group(1)) <= reach
+                    and not (m.group(2)[:1] == b'`' and b'`' in m.group(3))):
+                fence = (m.group(2)[:1], len(m.group(2)), reach, depth)
+            elif c:
+                in_comment = b'-->' not in rest[c.end():]
+            else:
+                m = BOX_RE.match(line)
+                if m:
+                    state = m.group(1)
+                it = ITEM_RE.match(rest)
+                if it:
+                    item = len(it.group(0))
+                elif rest.strip(SPACE) and len(rest) - len(rest.lstrip(b' ')) < (item or 0):
+                    item = None     # a line left of the item's content ends the list
         states.append(state)
     return states
 
@@ -171,6 +228,8 @@ def check_edit(before, after, selected, want):
         return [], 'the edited body has %d bytes, the original %d' % (len(after), len(before))
     bad, changed = [], []
     old, new = split_lines(before), split_lines(after)
+    # The same definition of a box as the selection: a box line in a fence or a comment is not one.
+    states = box_states(old)
     for number, a in enumerate(old, 1):
         if number > len(new):
             bad.append('BAD line %d: the edited body ends early' % number)
@@ -179,7 +238,7 @@ def check_edit(before, after, selected, want):
         if a == b:
             continue
         m = BOX_RE.match(a)
-        if not m:
+        if not m or states[number - 1] is None:
             bad.append('BAD line %d: not a checkbox line' % number)
             continue
         p = m.start(1)
@@ -275,11 +334,23 @@ class Run:
     lock = None     # (fd, path)
     files = []      # the backup and its siblings, removed unless the edit went out
     edited = False
+    restore = None  # the restore command, from the moment the edit call starts until it is safe
+
+
+class Interrupted(BaseException):
+    """INT or TERM arrived."""
 
 
 def write_new(path, data):
-    with open(path, 'wb') as f:
-        f.write(data)
+    """A file only this user can read: the body of a private repository's issue is in it."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        view = memoryview(data)
+        while view:
+            view = view[os.write(fd, view):]
+    finally:
+        os.close(fd)
 
 
 def cleanup():
@@ -304,7 +375,16 @@ def cleanup():
 
 
 def on_signal(signum, frame):
-    raise SystemExit(130)
+    raise Interrupted()
+
+
+def interrupted_message(restore):
+    """What to print when INT or TERM stops the run: the restore command once the edit call has
+    started, since the edit may have landed, and nothing before that."""
+    if not restore:
+        return None
+    return ('tick.py: stopped while the edit was under way, and the body may have changed. '
+            'Check it, and restore it if needed with:\n  %s' % restore)
 
 
 def parse(argv):
@@ -378,7 +458,7 @@ def parse(argv):
 
 
 def tick(argv):
-    Run.lock, Run.files, Run.edited = None, [], False
+    Run.lock, Run.files, Run.edited, Run.restore = None, [], False, None
     issue, repo, backup_dir, mode, untick, dry, matches, picks = parse(argv)
     if not shutil.which('gh'):
         raise Stop(2, 'tick.py: gh is required')
@@ -393,11 +473,20 @@ def tick(argv):
     # backup.
     state = os.environ.get('XDG_STATE_HOME') or os.environ.get('HOME', '') + '/.local/state'
     bdir = backup_dir or os.environ.get('TICK_BACKUP_DIR') or state + '/claude-kit/issue-bodies'
+    # The folders and files hold issue bodies, private ones among them: only this user reads
+    # them. A folder that already exists keeps its mode.
     try:
-        os.makedirs(bdir, exist_ok=True)
+        os.makedirs(bdir, mode=0o700, exist_ok=True)
     except OSError:
         raise Stop(1, 'tick.py: cannot create %s' % bdir)
-    lock = '%s/.issue-%s.lock' % (bdir, issue)
+    # The lock lives in its own folder. Under the backup folder, two runs given different
+    # --backup-dir values took different locks and could overwrite each other's edit.
+    ldir = os.environ.get('TICK_LOCK_DIR') or state + '/claude-kit/issue-locks'
+    try:
+        os.makedirs(ldir, mode=0o700, exist_ok=True)
+    except OSError:
+        raise Stop(1, 'tick.py: cannot create %s' % ldir)
+    lock = '%s/issue-%s.lock' % (ldir, issue)
     Run.lock = (take_lock(lock, float(wait)), lock)
 
     stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
@@ -405,7 +494,7 @@ def tick(argv):
     k = 1
     while True:
         try:
-            fd = os.open(stem + '.before.md', os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
+            fd = os.open(stem + '.before.md', os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
             break
         except FileExistsError:
             k += 1
@@ -518,12 +607,16 @@ def tick(argv):
     # 7. Edit, then believe only what reads back.
     write_new(after_path, after)
     Run.edited = True
+    # From here a stop by INT or TERM prints the restore command: the edit may land even when gh
+    # is killed halfway.
+    Run.restore = restore
     proc = subprocess.run(['gh', 'issue', 'edit', issue] + repo_args + ['--body-file', after_path],
                           stdout=subprocess.DEVNULL)
     if proc.returncode != 0:
         back = fetch(issue, repo_args, quiet=True)
         if back == before:
             Run.edited = False
+            Run.restore = None
             refuse('the edit call failed and the body is as it was')
         raise Stop(3, 'tick.py: the edit call failed and the body may have changed. Restore it '
                       'with:\n  %s' % restore)
@@ -541,6 +634,7 @@ def tick(argv):
             err('  ' + line)
         raise Stop(3, 'Sent: %s. Read back: %s. Restore the original with:\n  %s'
                    % (after_path, back_path, restore))
+    Run.restore = None
     for path in (after_path, back_path):
         try:
             os.unlink(path)
@@ -557,6 +651,11 @@ def main(argv):
         if e.message:
             err(e.message)
         return e.code
+    except Interrupted:
+        message = interrupted_message(Run.restore)
+        if message:
+            err(message)
+        return 130
     finally:
         cleanup()
 

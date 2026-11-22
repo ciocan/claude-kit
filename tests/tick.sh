@@ -15,6 +15,7 @@ trap 'rm -rf "$T"' EXIT
 PASS=0
 FAIL=0
 unset TICK_BACKUP_DIR
+export TICK_LOCK_DIR="$T/locks" # never the real state folder
 
 ok() { PASS=$((PASS + 1)); echo "  ok    $1"; }
 no() { FAIL=$((FAIL + 1)); echo "  FAIL  $1"; [ -n "${2:-}" ] && echo "$2" | sed 's/^/        /'; }
@@ -42,6 +43,7 @@ py_suite() { # file under tests/py: run it and add its ok and FAIL lines to the 
   FAIL=$((FAIL + fails))
   if [ "$rc" != 0 ] && [ "$fails" = 0 ]; then no "tests/py/$1 ran to the end (exit $rc)"; fi
 }
+mode_of() { python3 -B -c 'import os, sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "$1"; }
 
 G="$T/gh"; mkdir -p "$G/bin"
 cat >"$G/bin/gh" <<'STUB'
@@ -55,6 +57,8 @@ cat >"$G/bin/gh" <<'STUB'
 #   peer-edit    a file whose content replaces the body just before the second view, the way
 #                another session's edit would land between the read and the write
 #   slow         issue view takes 0.3 seconds, so two runs at once overlap
+#   view-hangs   issue view touches $GH_STUB/viewing, then sleeps 3 seconds
+#   edit-hangs   issue edit stores the body, touches $GH_STUB/editing, then sleeps 3 seconds
 d=$GH_STUB
 echo "gh $*" >>"$d/calls"
 pos=(); bf= json= jq=
@@ -73,6 +77,7 @@ case "${pos[0]:-}:${pos[1]:-}" in
   issue:view)
     [ "$json" = body ] && [ -z "$jq" ] || { echo "stub gh: view wants --json body and no --jq: $*" >&2; exit 9; }
     [ -f "$d/slow" ] && sleep 0.3
+    [ -f "$d/view-hangs" ] && { touch "$d/viewing"; sleep 3; }
     [ -f "$d/view-fails" ] && { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
     [ -f "$d/empty" ] && { printf '' | json_body; exit 0; }
     n=$(( $(cat "$d/views" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$d/views"
@@ -82,6 +87,7 @@ case "${pos[0]:-}:${pos[1]:-}" in
     [ -f "$d/edit-fails" ] && { echo "HTTP 422" >&2; exit 1; }
     if [ -f "$d/mangle" ]; then sed '1s/^/edited by a bot: /' "$bf" >"$d/body.new"; else cp "$bf" "$d/body.new"; fi
     mv "$d/body.new" "$d/body"
+    [ -f "$d/edit-hangs" ] && { touch "$d/editing"; sleep 3; }
     echo "https://github.com/o/r/issues/${pos[2]}" ;;
   *) echo "stub gh: unexpected call: $*" >&2; exit 9 ;;
 esac
@@ -393,7 +399,133 @@ expect_eq "the second run exits 0" 0 "$(cat "$GH_STUB/run.2.rc")"
 expect_eq "the first run's box is ticked" "- [x] write the parser" "$(line 2)"
 expect_eq "the second run's box is ticked" "- [x] write the tests" "$(line 4)"
 expect_eq "two edit calls" 2 "$(edits)"
-expect_eq "two backups, no lock file left" 2 "$(ls -A "$TICK_BACKUP_DIR" | wc -l | tr -d ' ')"
+expect_eq "two backups, nothing else in the backup folder" 2 "$(ls -A "$TICK_BACKUP_DIR" | wc -l | tr -d ' ')"
+expect_eq "no lock file left" 0 "$(ls -A "$TICK_LOCK_DIR" | wc -l | tr -d ' ')"
+
+# The same with a backup folder of its own for each run. The lock must not follow the backups.
+fresh "$B1"; touch "$GH_STUB/slow"
+( "$TICK" 5 --match "write the parser" --backup-dir "$GH_STUB/bk1" >"$GH_STUB/run.1" 2>&1; echo $? >"$GH_STUB/run.1.rc" ) &
+( "$TICK" 5 --match "write the tests" --backup-dir "$GH_STUB/bk2" >"$GH_STUB/run.2" 2>&1; echo $? >"$GH_STUB/run.2.rc" ) &
+wait
+expect_eq "different backup folders: the first run exits 0" 0 "$(cat "$GH_STUB/run.1.rc")"
+expect_eq "different backup folders: the second run exits 0" 0 "$(cat "$GH_STUB/run.2.rc")"
+expect_eq "different backup folders: the first run's box is ticked" "- [x] write the parser" "$(line 2)"
+expect_eq "different backup folders: the second run's box is ticked" "- [x] write the tests" "$(line 4)"
+
+fresh "$B1"
+out=$(env -u TICK_LOCK_DIR XDG_STATE_HOME="$T/xdg" "$TICK" 5 --line 1 2>&1); rc=$?
+expect_code "the default lock folder" 0 "$rc" "$out"
+[ -d "$T/xdg/claude-kit/issue-locks" ] && ok "it is under the state folder, not the backup folder" || no "it is under the state folder, not the backup folder" "$(ls -R "$T/xdg" 2>&1)"
+
+echo "tick.py fences, comments and spacing, as the page shows them"
+# A ``` line inside a ```` fence is code, not the end of the fence.
+fresh '- [x] real
+````md
+```
+- [ ] template
+```
+````
+- [ ] after'
+out=$(tick 5 --line 2); rc=$?
+expect_code "a fence inside a longer fence" 0 "$rc" "$out"
+expect_eq "box 2 is the one after the outer fence" "- [x] after" "$(line 7)"
+expect_eq "the template inside both fences is untouched" "- [ ] template" "$(line 4)"
+
+# A ~~~ line inside a ``` fence is code too.
+fresh '```
+~~~
+- [ ] template
+```
+- [ ] after'
+out=$(tick 5 --all); rc=$?
+expect_code "a tilde line inside a backtick fence" 0 "$rc" "$out"
+expect_has "it sees the one box the page shows" "ticked 1 of 1 boxes" "$out"
+expect_eq "the template is untouched" "- [ ] template" "$(line 3)"
+expect_eq "the box after the fence is ticked" "- [x] after" "$(line 5)"
+
+# Three backticks with a backtick in the rest of the line are inline code, not a fence.
+fresh '```npm install``` first
+- [ ] after
+- [ ] later'
+out=$(tick 5 --all); rc=$?
+expect_code "an inline triple backtick line" 0 "$rc" "$out"
+expect_has "it hides no box after it" "ticked 2 of 2 boxes" "$out"
+
+fresh '- [ ] before
+```
+- [ ] inside a fence that never closes'
+out=$(tick 5 --all); rc=$?
+expect_code "an unclosed fence" 0 "$rc" "$out"
+expect_has "it runs to the end of the body" "ticked 1 of 1 boxes" "$out"
+expect_eq "the box in it is untouched" "- [ ] inside a fence that never closes" "$(line 3)"
+
+fresh '<!--
+- [ ] hidden in a comment
+-->
+- [ ] shown
+<!-- - [ ] in a one-line comment -->'
+out=$(tick 5 --all); rc=$?
+expect_code "boxes in HTML comments" 0 "$rc" "$out"
+expect_has "only the shown box counts" "ticked 1 of 1 boxes" "$out"
+expect_eq "the box in the multi-line comment is untouched" "- [ ] hidden in a comment" "$(line 2)"
+expect_eq "the shown box is ticked" "- [x] shown" "$(line 4)"
+
+# Two to four spaces after the marker still make a task item on the page.
+fresh '-  [ ] two spaces
+- [ ] one space
+1.    [ ] four spaces'
+out=$(tick 5 --line 2); rc=$?
+expect_code "--line with a two-space marker before it" 0 "$rc" "$out"
+expect_eq "box 2 is the second box the page shows" "- [x] one space" "$(line 2)"
+expect_eq "box 1 is untouched" "-  [ ] two spaces" "$(line 1)"
+out=$(tick 5 --all); rc=$?
+expect_has "--all sees all three" "ticked 2 of 3 boxes" "$out"
+expect_eq "the two-space box is ticked" "-  [x] two spaces" "$(line 1)"
+expect_eq "the four-space box is ticked" "1.    [x] four spaces" "$(line 3)"
+
+echo "tick.py file modes"
+# Issue bodies of private repositories land in these files. Other users must not read them.
+fresh "$B1"; touch "$GH_STUB/mangle"
+out=$(umask 022; TICK_LOCK_DIR="$GH_STUB/locks" "$TICK" 5 --all 2>&1); rc=$?
+expect_code "a run under umask 022 that keeps its files (exit 3)" 3 "$rc" "$out"
+expect_eq "the backup folder it creates is 700" 700 "$(mode_of "$TICK_BACKUP_DIR")"
+expect_eq "the lock folder it creates is 700" 700 "$(mode_of "$GH_STUB/locks")"
+for kind in before after readback; do
+  f=$(ls "$TICK_BACKUP_DIR"/issue-5-*."$kind".md 2>/dev/null | head -n 1)
+  if [ -n "$f" ]; then expect_eq "the .$kind.md file is 600" 600 "$(mode_of "$f")"; else no "the .$kind.md file is 600 (no such file)" "$(ls -A "$TICK_BACKUP_DIR")"; fi
+done
+fresh "$B1"; mkdir -p "$GH_STUB/mine"; chmod 755 "$GH_STUB/mine"
+out=$(umask 022; "$TICK" 5 --line 1 --backup-dir "$GH_STUB/mine" 2>&1); rc=$?
+expect_code "a run with a backup folder that exists" 0 "$rc" "$out"
+expect_eq "a folder that exists keeps its mode" 755 "$(mode_of "$GH_STUB/mine")"
+
+echo "tick.py stopped by a signal"
+# A TERM while gh edits: the edit may have landed, so the restore command must be printed.
+fresh "$B1"; touch "$GH_STUB/edit-hangs"
+"$TICK" 5 --all >"$GH_STUB/run.out" 2>&1 &
+pid=$!
+for _ in $(seq 1 100); do [ -e "$GH_STUB/editing" ] && break; sleep 0.05; done
+kill -TERM "$pid"; wait "$pid"; rc=$?
+out=$(cat "$GH_STUB/run.out")
+expect_code "a TERM during the edit exits 130" 130 "$rc" "$out"
+expect_has "it prints the restore command" "  gh issue edit 5 --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_eq "the backup and the body sent are kept" 2 "$(ls "$TICK_BACKUP_DIR" | grep -cE '[.](before|after)[.]md$')"
+restore=$(printf '%s\n' "$out" | grep '^  gh issue edit' | sed 's/^  //')
+rm -f "$GH_STUB/edit-hangs"
+eval "$restore" >/dev/null
+expect_same "the printed command restores the body" "$GH_STUB/served" "$GH_STUB/body"
+
+# A TERM before the edit: nothing was sent, so there is nothing to restore.
+fresh "$B1"; touch "$GH_STUB/view-hangs"
+"$TICK" 5 --all >"$GH_STUB/run.out" 2>&1 &
+pid=$!
+for _ in $(seq 1 100); do [ -e "$GH_STUB/viewing" ] && break; sleep 0.05; done
+kill -TERM "$pid"; wait "$pid"; rc=$?
+out=$(cat "$GH_STUB/run.out")
+expect_code "a TERM before the edit exits 130" 130 "$rc" "$out"
+expect_not "it prints no restore command" "gh issue edit" "$out"
+expect_eq "it leaves no backup" 0 "$(ls -A "$TICK_BACKUP_DIR" | wc -l | tr -d ' ')"
+expect_eq "no edit call" 0 "$(edits)"
 
 echo "tick.py guards (tests/py/test_tick.py)"
 py_suite test_tick.py
