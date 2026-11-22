@@ -60,6 +60,9 @@ cat >"$G/bin/gh" <<'STUB'
 #   slow         issue view takes 0.3 seconds, so two runs at once overlap
 #   view-hangs   issue view touches $GH_STUB/viewing, then sleeps 3 seconds
 #   edit-hangs   issue edit stores the body, touches $GH_STUB/editing, then sleeps 3 seconds
+#   no-url       issue view gives the body without the issue's url
+#   plant-after  two lines, a folder and a target: on the second view, the one before the edit,
+#                put a symlink to the target at the .after.md name of the .before.md in the folder
 d=$GH_STUB
 echo "gh $*" >>"$d/calls"
 pos=(); bf= json= jq=
@@ -73,17 +76,29 @@ while [ $# -gt 0 ]; do
   esac
 done
 # Like `gh issue view --json body`: one JSON object, the body a string inside it.
-json_body() { python3 -B -c 'import json, sys; print(json.dumps({"body": sys.stdin.buffer.read().decode("utf-8")}))'; }
+json_body() { # url, or empty for none
+  python3 -B -c 'import json, sys
+out = {"body": sys.stdin.buffer.read().decode("utf-8")}
+if sys.argv[1]:
+    out["url"] = sys.argv[1]
+print(json.dumps(out))' "$1"
+}
+url="https://github.com/o/r/issues/${pos[2]:-}"
+[ -f "$d/no-url" ] && url=
 case "${pos[0]:-}:${pos[1]:-}" in
   issue:view)
-    [ "$json" = body ] && [ -z "$jq" ] || { echo "stub gh: view wants --json body and no --jq: $*" >&2; exit 9; }
+    [ "$json" = body,url ] && [ -z "$jq" ] || { echo "stub gh: view wants --json body,url and no --jq: $*" >&2; exit 9; }
     [ -f "$d/slow" ] && sleep 0.3
     [ -f "$d/view-hangs" ] && { touch "$d/viewing"; sleep 3; }
     [ -f "$d/view-fails" ] && { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
-    [ -f "$d/empty" ] && { printf '' | json_body; exit 0; }
+    [ -f "$d/empty" ] && { printf '' | json_body "$url"; exit 0; }
     n=$(( $(cat "$d/views" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$d/views"
     [ -f "$d/peer-edit" ] && [ "$n" -eq 2 ] && cp "$d/peer-edit" "$d/body"
-    json_body <"$d/body" ;;
+    if [ -f "$d/plant-after" ] && [ "$n" -eq 2 ]; then
+      folder=$(sed -n 1p "$d/plant-after"); target=$(sed -n 2p "$d/plant-after")
+      for b in "$folder"/*.before.md; do ln -s "$target" "${b%.before.md}.after.md"; done
+    fi
+    json_body "$url" <"$d/body" ;;
   issue:edit)
     [ -f "$d/edit-fails" ] && { echo "HTTP 422" >&2; exit 1; }
     if [ "$bf" = - ]; then cat >"$d/sent"; else cat -- "$bf" >"$d/sent"; fi || exit 1
@@ -269,9 +284,24 @@ echo "tick.py after the edit"
 fresh "$B1"; touch "$GH_STUB/mangle"
 out=$(tick 5 --all); rc=$?
 expect_code "a read-back that differs exits 3" 3 "$rc" "$out"
-expect_has "it prints the restore command" "gh issue edit 5 --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_has "it prints the restore command, pinned to the issue's repository" "gh issue edit 5 --repo o/r --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
 restore=$(printf '%s\n' "$out" | grep '^  gh issue edit' | sed 's/^  //')
 expect_has "the restore command points at the backup" ".before.md" "$restore"
+# Someone else's edit just after this one also makes the read-back differ. Restoring would remove
+# their text, so the message asks for a comparison first and gives the restore as the last resort.
+expect_has "it says what a differing read-back can mean" "An edit by someone else in the moment after this one looks the same." "$out"
+expect_has "it names the before file" "before (the body as it was):  $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_has "it names the after file" "after (what was sent):        $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_has "it names the read-back file" "read-back (the body now):     $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_has "it asks for a comparison first" "Compare the read-back with the after file before doing anything" "$out"
+expect_has "it calls the restore the last resort" "Last resort, only for a body that is damaged. This replaces the whole body with the backup:" "$out"
+compare_at=$(printf '%s\n' "$out" | grep -n 'Compare the read-back' | cut -d: -f1)
+restore_at=$(printf '%s\n' "$out" | grep -n '^  gh issue edit' | cut -d: -f1)
+if [ -n "$compare_at" ] && [ -n "$restore_at" ] && [ "$compare_at" -lt "$restore_at" ]; then
+  ok "the compare line comes before the restore line"
+else
+  no "the compare line comes before the restore line" "$out"
+fi
 rm -f "$GH_STUB/mangle"
 eval "$restore" >/dev/null
 expect_same "the restore command brings the body back" "$GH_STUB/served" "$GH_STUB/body"
@@ -280,6 +310,37 @@ fresh "$B1"; touch "$GH_STUB/edit-fails"
 out=$(tick 5 --all); rc=$?
 expect_code "a failed edit call that changed nothing is refused" 1 "$rc" "$out"
 expect_has "it says the body is as it was" "the body is as it was" "$out"
+
+# Run from somewhere else, a restore command with only the issue number would overwrite another
+# repository's issue. It carries the repository from the issue's url and an absolute path.
+fresh "$B1"; touch "$GH_STUB/mangle"
+abs=$(cd "$GH_STUB" && pwd -P)
+out=$(cd "$GH_STUB" && "$TICK" 5 --all --backup-dir rel 2>&1); rc=$?
+expect_code "a relative backup folder, read-back differs" 3 "$rc" "$out"
+expect_has "the restore command carries an absolute path" "  gh issue edit 5 --repo o/r --body-file $abs/rel/issue-5-" "$out"
+expect_has "the files are named by absolute paths" "after (what was sent):        $abs/rel/issue-5-" "$out"
+fresh "$B1"; touch "$GH_STUB/mangle" "$GH_STUB/no-url"
+out=$(tick 5 --all); rc=$?
+expect_code "no url from gh and no --repo" 3 "$rc" "$out"
+expect_has "it says where the command must run" "Run it from a clone of the repository #5 belongs to" "$out"
+expect_has "the command holds no repository then" "  gh issue edit 5 --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
+fresh "$B1"; touch "$GH_STUB/mangle" "$GH_STUB/no-url"
+out=$(tick 5 --all --repo given/repo); rc=$?
+expect_has "without a url the caller's --repo is used" "  gh issue edit 5 --repo given/repo --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_not "and no warning is printed" "Run it from a clone" "$out"
+
+# A gh that cannot be started is a refusal with a clear line, not a traceback. This one is
+# executable, so it is found, but its interpreter does not exist. gh vanishing just before the
+# edit is tested in tests/py/test_tick.py.
+fresh "$B1"; mkdir -p "$GH_STUB/bin"; printf '#!/nonexistent/interpreter\n' >"$GH_STUB/bin/gh"; chmod +x "$GH_STUB/bin/gh"
+# PATH holds only that folder: on ENOENT, Python goes on to the next PATH entry, which would find
+# the stub. python3 is called by its full path for the same reason.
+py=$(command -v python3)
+out=$(PATH="$GH_STUB/bin" "$py" -B "$TICK" 5 --all 2>&1); rc=$?
+expect_code "a gh that cannot start at the first view is refused" 1 "$rc" "$out"
+expect_has "it says gh could not be started" "cannot start gh to read #5" "$out"
+expect_not "no traceback at the first view" "Traceback" "$out"
+expect_eq "no backup is left" 0 "$(ls -A "$TICK_BACKUP_DIR" | wc -l | tr -d ' ')"
 
 fresh "$B1"
 out=$(tick 5 --repo o/r --match "tests"); rc=$?
@@ -531,18 +592,16 @@ for m in 700 755; do
   expect_code "a backup folder of this user with mode $m is accepted" 0 "$rc" "$out"
 done
 
-# A symlink planted at the .after.md name is refused and its target left alone. The stem holds
-# the second the run starts, so plant one for each of the next few seconds.
+# A symlink planted at the .after.md name is refused and its target left alone. The stub plants
+# it on the view just before the edit, when the .before.md already names the run's stem.
 fresh "$B1"; mkdir -p "$GH_STUB/own"; chmod 700 "$GH_STUB/own"
 printf 'a file of the user\n' >"$GH_STUB/victim"
-for stamp in $(python3 -B -c 'import time; [print(time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(time.time() + i))) for i in range(6)]'); do
-  ln -s "$GH_STUB/victim" "$GH_STUB/own/issue-5-$stamp.after.md"
-done
+printf '%s\n%s\n' "$GH_STUB/own" "$GH_STUB/victim" >"$GH_STUB/plant-after"
 out=$(tick 5 --all --backup-dir "$GH_STUB/own"); rc=$?
 expect_code "a symlink at the .after.md name is refused" 1 "$rc" "$out"
 expect_has "it says the name is taken" ".after.md is already there" "$out"
 expect_eq "the symlink's target is unchanged" "a file of the user" "$(cat "$GH_STUB/victim")"
-expect_eq "the planted symlinks are left in place" 6 "$(find "$GH_STUB/own" -type l | wc -l | tr -d ' ')"
+expect_eq "the planted symlink is left in place" 1 "$(find "$GH_STUB/own" -type l | wc -l | tr -d ' ')"
 expect_eq "no edit call" 0 "$(edits)"
 expect_eq "the run's own backup is removed" 0 "$(ls "$GH_STUB/own" | grep -c 'before')"
 
@@ -555,7 +614,7 @@ for _ in $(seq 1 100); do [ -e "$GH_STUB/editing" ] && break; sleep 0.05; done
 kill -TERM "$pid"; wait "$pid"; rc=$?
 out=$(cat "$GH_STUB/run.out")
 expect_code "a TERM during the edit exits 130" 130 "$rc" "$out"
-expect_has "it prints the restore command" "  gh issue edit 5 --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_has "it prints the restore command" "  gh issue edit 5 --repo o/r --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
 expect_eq "the backup and the body sent are kept" 2 "$(ls "$TICK_BACKUP_DIR" | grep -cE '[.](before|after)[.]md$')"
 restore=$(printf '%s\n' "$out" | grep '^  gh issue edit' | sed 's/^  //')
 rm -f "$GH_STUB/edit-hangs"

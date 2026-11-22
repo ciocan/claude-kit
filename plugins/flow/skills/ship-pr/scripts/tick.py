@@ -24,7 +24,7 @@ by CommonMark's rules) or an HTML comment (<!-- ... -->) are never boxes: the pa
 them as boxes, so template text is left alone and --line counts what the page shows. A box in a
 code block made by indentation alone is still counted.
 
-The body comes from `gh issue view <n> --json body` and is parsed from the JSON, so it is the
+The body comes from `gh issue view <n> --json body,url` and is parsed from the JSON, so it is the
 body as stored, byte for byte. The shell version read it with `gh -q .body`, which prints the
 body and then a newline of its own, and had to drop that byte, or every edit would have added a
 line end to the issue. The body is handled as bytes: CRLF line ends, a missing final newline and
@@ -64,12 +64,19 @@ Each folder is opened once and checked on that descriptor, and every file in it 
 removed through the descriptor, never by its path. A folder renamed away and replaced after the
 check, by someone who can write in a parent, then neither receives this run's files nor supplies
 one of its own. The restore command printed on exit 3 or on a stop names the .before.md by its
-path, for a person to run later: that path is trusted only as far as the folder is. Keep the
-backup folder where only you can write, its parents included.
+absolute path, for a person to run later: that path is trusted only as far as the folder is.
+Keep the backup folder where only you can write, its parents included. The command also names
+the issue's repository with --repo, read from the issue's url (owner/repo on github.com,
+host/owner/repo elsewhere), so it cannot land on another repository's issue of the same number.
+When gh gives no usable url and no --repo was passed, a line above the command says to run it
+from the issue's repository. On a read-back that differs, the message asks for a comparison of
+the read-back with the .after.md first: an edit by someone else just after this one looks the
+same, and the restore, which replaces the whole body, is the last resort for a damaged body.
 
-Exit codes: 0 done or nothing to do, 1 refused by a guard or by the selection, or another run
-            holds the issue, 2 usage, 3 the body read back differs from what was sent,
-            130 stopped by INT or TERM (after the cleanup). Once the edit call has started, the
+Exit codes: 0 done or nothing to do, 1 refused by a guard or by the selection, another run
+            holds the issue, or gh could not be started before the edit, 2 usage, 3 the body
+            read back differs from what was sent, or the edit failed and the body may have
+            changed, 130 stopped by INT or TERM (after the cleanup). Once the edit call has started, the
             stop prints the restore command and keeps the backup and the .after.md file, since
             the edit may have landed.
 Env: TICK_BACKUP_DIR   backup dir when --backup-dir is not given
@@ -90,6 +97,7 @@ import signal
 import subprocess
 import sys
 import time
+import urllib.parse
 
 # The one definition of a box line: optional space, quote marks, a bullet or an ordered marker,
 # one to four spaces, then the brackets. Group 1 is the bracket character. box_states adds the
@@ -277,21 +285,74 @@ def check_edit(before, after, selected, want):
 
 # gh.
 
-def fetch(issue, repo_args, quiet=False):
-    """The body as stored, as bytes, or None when gh fails or prints no body."""
+class GhMissing(Exception):
+    """gh could not be started at all: nothing was asked of GitHub."""
+
+
+def fetch_issue(issue, repo_args, quiet=False):
+    """(body as stored, as bytes, url or None), or None when gh fails or prints no body.
+
+    Raises GhMissing when gh cannot be started.
+    """
     try:
-        proc = subprocess.run(['gh', 'issue', 'view', issue] + repo_args + ['--json', 'body'],
+        proc = subprocess.run(['gh', 'issue', 'view', issue] + repo_args + ['--json', 'body,url'],
                               stdout=subprocess.PIPE,
                               stderr=subprocess.DEVNULL if quiet else None)
-    except OSError:
-        return None
+    except OSError as e:
+        raise GhMissing(e.strerror or str(e))
     if proc.returncode != 0:
         return None
     try:
-        body = json.loads(proc.stdout.decode('utf-8'))['body']
-        return body.encode('utf-8')
+        data = json.loads(proc.stdout.decode('utf-8'))
+        body = data['body'].encode('utf-8')
     except (ValueError, KeyError, TypeError, AttributeError, UnicodeError):
         return None
+    url = data.get('url')
+    return body, url if isinstance(url, str) else None
+
+
+def fetch(issue, repo_args, quiet=False):
+    """The body as stored, as bytes, or None when gh fails, prints no body or cannot start."""
+    try:
+        got = fetch_issue(issue, repo_args, quiet)
+    except GhMissing:
+        return None
+    return got[0] if got else None
+
+
+REPO_PART_RE = re.compile(r'[A-Za-z0-9._-]+\Z')
+
+
+def repo_from_url(url, issue):
+    """The --repo value for the issue at url: owner/repo on github.com, host/owner/repo on
+    another host. None when the url is missing or is not the url of that issue."""
+    if not url:
+        return None
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in ('https', 'http') or not parts.hostname:
+        return None
+    path = parts.path.strip('/').split('/')
+    if (len(path) != 4 or path[2] not in ('issues', 'pull') or path[3] != issue
+            or not all(REPO_PART_RE.match(p) for p in path[:2])):
+        return None
+    host = parts.hostname.lower()
+    if parts.port:
+        host += ':%d' % parts.port
+    owner_repo = '%s/%s' % (path[0], path[1])
+    return owner_repo if host == 'github.com' else '%s/%s' % (host, owner_repo)
+
+
+def restore_lines(issue, repo, before_path):
+    """The command that puts the backup back, pinned to the issue's repository and to the
+    backup's absolute path. Without a repository it says where it must be run."""
+    lines = []
+    if not repo:
+        lines.append('Run it from a clone of the repository #%s belongs to: gh did not give the '
+                     "issue's url and no --repo was passed, so the command holds no repository."
+                     % issue)
+    lines.append('  gh issue edit %s%s --body-file %s' % (
+        issue, ' --repo ' + shlex.quote(repo) if repo else '', shlex.quote(before_path)))
+    return '\n'.join(lines)
 
 
 # The per-issue lock.
@@ -450,6 +511,24 @@ def cleanup():
         signal.pthread_sigmask(signal.SIG_SETMASK, mask)
 
 
+def mismatch_message(issue, diff, before_path, after_path, back_path, restore):
+    """Exit 3 after a read-back that differs. An edit by someone else just after this one looks
+    the same, and a full restore would remove their text, so comparing comes first and the
+    restore command comes last, as the step for a damaged body only."""
+    lines = ['tick.py: the body of #%s read back differs from what was sent. An edit by someone '
+             'else in the moment after this one looks the same.' % issue]
+    lines += ['  ' + line for line in diff[:20]]
+    lines += ['  before (the body as it was):  %s' % before_path,
+              '  after (what was sent):        %s' % after_path,
+              '  read-back (the body now):     %s' % back_path,
+              'Compare the read-back with the after file before doing anything: the read-back may '
+              "hold someone else's newer text, and a restore would remove it.",
+              'Last resort, only for a body that is damaged. This replaces the whole body with '
+              'the backup:',
+              restore]
+    return '\n'.join(lines)
+
+
 def on_signal(signum, frame):
     raise Interrupted()
 
@@ -460,7 +539,8 @@ def interrupted_message(restore):
     if not restore:
         return None
     return ('tick.py: stopped while the edit was under way, and the body may have changed. '
-            'Check it, and restore it if needed with:\n  %s' % restore)
+            'Check it first. If it is damaged, this replaces the whole body with the backup:\n%s'
+            % restore)
 
 
 def parse(argv):
@@ -574,15 +654,23 @@ def tick(argv):
             raise Stop(1, 'tick.py: cannot write in %s' % bdir)
     before_name, after_name, back_name = (stem + '.before.md', stem + '.after.md',
                                           stem + '.readback.md')
-    before_path, after_path, back_path = ('%s/%s' % (bdir, n)
+    # Absolute, so the printed paths and the restore command work from any directory.
+    adir = os.path.abspath(bdir)
+    before_path, after_path, back_path = ('%s/%s' % (adir, n)
                                           for n in (before_name, after_name, back_name))
-    restore = 'gh issue edit %s%s --body-file %s' % (
-        issue, ' --repo ' + shlex.quote(repo) if repo else '', shlex.quote(before_path))
 
-    before = fetch(issue, repo_args)
-    if before is None:
+    try:
+        got = fetch_issue(issue, repo_args)
+    except GhMissing as e:
+        os.close(fd)
+        refuse('cannot start gh to read #%s (%s)' % (issue, e))
+    if got is None:
         os.close(fd)
         refuse('cannot read the body of #%s' % issue)
+    before, url = got
+    # The restore command names the issue's own repository, from its url, so it cannot land on
+    # another repository's issue of the same number when it is run from somewhere else.
+    restore = restore_lines(issue, repo_from_url(url, issue) or repo, before_path)
     try:
         view = memoryview(before)
         while view:
@@ -669,7 +757,11 @@ def tick(argv):
 
     # 6. Read the body once more. If someone changed it since the backup, an edit built from the
     # backup would undo their change.
-    again = fetch(issue, repo_args)
+    try:
+        again = fetch_issue(issue, repo_args)
+    except GhMissing as e:
+        refuse('cannot start gh to read #%s again before the edit (%s)' % (issue, e))
+    again = again[0] if again else None
     if again is None:
         refuse('cannot read the body of #%s again before the edit' % issue)
     if again != before:
@@ -689,20 +781,28 @@ def tick(argv):
     # The body goes to gh on stdin, from memory. gh reads no path, so a backup folder swapped
     # after the check cannot hand it a body of someone else's. The .after.md file is the record
     # of what was sent.
-    proc = subprocess.run(['gh', 'issue', 'edit', issue] + repo_args + ['--body-file', '-'],
-                          input=after, stdout=subprocess.DEVNULL)
+    try:
+        proc = subprocess.run(['gh', 'issue', 'edit', issue] + repo_args + ['--body-file', '-'],
+                              input=after, stdout=subprocess.DEVNULL)
+    except OSError as e:
+        # gh did not start, so nothing was sent: an ordinary refusal before the edit.
+        Run.edited = False
+        Run.restore = None
+        refuse('cannot start gh for the edit (%s), so nothing was sent' % (e.strerror or e))
     if proc.returncode != 0:
         back = fetch(issue, repo_args, quiet=True)
         if back == before:
             Run.edited = False
             Run.restore = None
             refuse('the edit call failed and the body is as it was')
-        raise Stop(3, 'tick.py: the edit call failed and the body may have changed. Restore it '
-                      'with:\n  %s' % restore)
+        raise Stop(3, 'tick.py: the edit call failed and the body may have changed. Check it '
+                      'first. If it is damaged, this replaces the whole body with the backup:\n%s'
+                   % restore)
     back = fetch(issue, repo_args)
     if back is None:
-        raise Stop(3, 'tick.py: edited #%s, but cannot read it back. Check it, and restore it if '
-                      'needed with:\n  %s' % (issue, restore))
+        raise Stop(3, 'tick.py: edited #%s, but cannot read it back. Check it first. If it is '
+                      'damaged, this replaces the whole body with the backup:\n%s'
+                   % (issue, restore))
     if back != after:
         try:
             write_new(bfd, back_name, back)
@@ -712,11 +812,7 @@ def tick(argv):
         diff = list(difflib.unified_diff(
             after.decode('utf-8', 'replace').splitlines(),
             back.decode('utf-8', 'replace').splitlines(), 'sent', 'read back', lineterm=''))
-        err('tick.py: the body of #%s read back differs from what was sent:' % issue)
-        for line in diff[:20]:
-            err('  ' + line)
-        raise Stop(3, 'Sent: %s. Read back: %s. Restore the original with:\n  %s'
-                   % (after_path, kept, restore))
+        raise Stop(3, mismatch_message(issue, diff, before_path, after_path, kept, restore))
     Run.restore = None
     try:
         os.unlink(after_name, dir_fd=bfd)   # created by this run, in the folder it checked

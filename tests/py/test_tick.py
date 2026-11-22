@@ -37,7 +37,8 @@ with open(os.path.join(d, 'calls'), 'a') as f:
 args = sys.argv[1:]
 if args[:2] == ['issue', 'view']:
     with open(os.path.join(d, 'body'), 'rb') as f:
-        print(json.dumps({'body': f.read().decode('utf-8')}))
+        print(json.dumps({'body': f.read().decode('utf-8'),
+                          'url': 'https://github.com/o/r/issues/%s' % args[2]}))
 elif args[:2] == ['issue', 'edit']:
     source = args[args.index('--body-file') + 1]
     if source == '-':
@@ -74,6 +75,8 @@ def run(argv):
             code = tick.main(argv)
         except SystemExit as e:
             code = e.code
+        except Exception as e:      # a traceback the script let out is a failed check
+            code = 'raised %s: %s' % (type(e).__name__, e)
         sys.stdout.flush()
         sys.stderr.flush()
         return code, sys.stdout.buffer.getvalue(), sys.stderr.buffer.getvalue()
@@ -162,10 +165,48 @@ def tests(tmp):
 
     # What a stop by INT or TERM prints: the restore command once the edit call has started.
     check('a stop before the edit prints nothing', tick.interrupted_message(None) is None)
-    message = tick.interrupted_message('gh issue edit 5 --body-file /b/issue-5.before.md')
+    message = tick.interrupted_message(tick.restore_lines('5', 'o/r', '/b/issue-5.before.md'))
     check('a stop during the edit prints the restore command',
-          message is not None and message.endswith('\n  gh issue edit 5 --body-file '
+          message is not None and message.endswith('\n  gh issue edit 5 --repo o/r --body-file '
                                                    '/b/issue-5.before.md'), message)
+
+    # The restore command names the issue's repository, read from its url.
+    for url, want in (
+            ('https://github.com/o/r/issues/5', 'o/r'),
+            ('https://GitHub.com/o/r/issues/5/', 'o/r'),
+            ('https://ghe.example.com/team/app/issues/5', 'ghe.example.com/team/app'),
+            ('https://ghe.example.com:8443/team/app/issues/5', 'ghe.example.com:8443/team/app'),
+            ('https://github.com/o/r/pull/5', 'o/r'),
+            ('https://github.com/o/r/issues/6', None),
+            ('https://github.com/o/r', None),
+            ('file:///o/r/issues/5', None),
+            ('https://github.com/o/r b/issues/5', None),
+            ('', None),
+            (None, None)):
+        got = tick.repo_from_url(url, '5')
+        check('the repository from %r is %r' % (url, want), got == want, got)
+    check('a restore command without a repository says where to run it',
+          tick.restore_lines('5', None, '/b/x.before.md')
+          == 'Run it from a clone of the repository #5 belongs to: gh did not give the issue\'s '
+             'url and no --repo was passed, so the command holds no repository.\n'
+             '  gh issue edit 5 --body-file /b/x.before.md')
+    check('a restore command quotes its parts',
+          tick.restore_lines('5', 'o/r', '/b/a b.before.md')
+          == "  gh issue edit 5 --repo o/r --body-file '/b/a b.before.md'")
+
+    # On a read-back that differs, compare first, restore last.
+    message = tick.mismatch_message('5', ['--- sent'], '/b/x.before.md', '/b/x.after.md',
+                                    '/b/x.readback.md',
+                                    tick.restore_lines('5', 'o/r', '/b/x.before.md'))
+    lines = message.split('\n')
+    compare = [i for i, line in enumerate(lines) if line.startswith('Compare the read-back')]
+    last = [i for i, line in enumerate(lines) if line.startswith('Last resort')]
+    command = [i for i, line in enumerate(lines) if line.startswith('  gh issue edit')]
+    check('the mismatch message compares before it restores',
+          len(compare) == len(last) == len(command) == 1 and compare[0] < last[0] < command[0]
+          and command[0] == len(lines) - 1, message)
+    check('the mismatch message names the three files', all(
+        p in message for p in ('/b/x.before.md', '/b/x.after.md', '/b/x.readback.md')), message)
 
     # The edit keeps every byte but the bracket character.
     crlf = b'## Tasks\r\n- [ ] one\r\n- [X] two\r\n'
@@ -303,8 +344,39 @@ def wired(tmp):
     check('the line guard names it', b'the edited body has 5 lines, the original 6' in err, err)
     check('no edit call', 'issue edit' not in calls, calls)
     check('the body is unchanged', body == B1)
-    check('no backup or lock is left', os.listdir(os.path.join(world, 'backups')) == [],
-          os.listdir(os.path.join(world, 'backups')))
+    left = (os.listdir(os.path.join(world, 'backups')), os.listdir(os.path.join(world, 'locks')))
+    check('no backup or lock is left', left == ([], []), left)
+
+    # gh vanishes after the last read: the edit cannot start, so nothing was sent. That is a
+    # refusal before the edit, with a clear line and the same cleanup, not a traceback.
+    open(os.path.join(world, 'calls'), 'w').close()
+    real_run = tick.subprocess.run
+
+    def gone_at_edit(args, *rest, **kwargs):
+        if args[:3] == ['gh', 'issue', 'edit']:
+            raise FileNotFoundError(2, 'No such file or directory', 'gh')
+        return real_run(args, *rest, **kwargs)
+
+    os.environ['PATH'] = stub_dir + os.pathsep + os.environ.get('PATH', '')
+    os.environ['GH_STUB'] = world
+    os.environ['TICK_BACKUP_DIR'] = os.path.join(world, 'backups')
+    os.environ['TICK_LOCK_DIR'] = os.path.join(world, 'locks')
+    tick.subprocess.run = gone_at_edit
+    try:
+        code, out, err = run(['5', '--all'])
+    finally:
+        tick.subprocess.run = real_run
+        os.environ.clear()
+        os.environ.update(saved_env)
+    with open(os.path.join(world, 'body'), 'rb') as f:
+        body = f.read()
+    check('a gh that cannot start for the edit is a refusal', code == 1, (code, err))
+    check('it says nothing was sent', b'cannot start gh for the edit' in err
+          and b'so nothing was sent' in err, err)
+    check('it prints no restore command', b'gh issue edit' not in err, err)
+    check('the body is unchanged when gh cannot start', body == B1)
+    left = (os.listdir(os.path.join(world, 'backups')), os.listdir(os.path.join(world, 'locks')))
+    check('no backup or lock is left when gh cannot start', left == ([], []), left)
 
     # The backup folder is renamed away and replaced after the check, just before the edit, by
     # someone who can write in its parent. The new folder holds their .after.md. gh must still get
