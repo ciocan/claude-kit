@@ -52,6 +52,11 @@ On success only the backup is kept. When a run exits 3, the .after.md file it se
 the backup, and so is a .readback.md when the body read back differs from it. The files are
 created with mode 0600 and the backup and lock folders, when this script creates them, with
 0700: a private repository's issue body must not be readable by other users of the machine.
+Each file is created new, with O_EXCL and O_NOFOLLOW: a file or symlink already at the name is
+refused and left as it is, never written through or truncated. A backup or lock folder that
+belongs to another user, or that group or others can write in, is refused before any gh call,
+since another user could plant a symlink there at the name of the next .after.md. There is no
+override: give a private folder.
 
 Exit codes: 0 done or nothing to do, 1 refused by a guard or by the selection, or another run
             holds the issue, 2 usage, 3 the body read back differs from what was sent,
@@ -287,7 +292,7 @@ def take_lock(path, wait_s):
     deadline = time.monotonic() + wait_s
     while True:
         try:
-            fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+            fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         except OSError as e:
             raise Stop(1, 'tick.py: cannot create the lock file %s: %s. Nothing was edited.'
                        % (path, e.strerror))
@@ -341,16 +346,50 @@ class Interrupted(BaseException):
     """INT or TERM arrived."""
 
 
-def write_new(path, data):
-    """A file only this user can read: the body of a private repository's issue is in it."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+class Collision(Exception):
+    """A file tick.py meant to create is already there."""
+
+
+def create_new(path):
+    """Create path for this run alone, mode 0600, and return its descriptor.
+
+    O_EXCL refuses a name that is taken and O_NOFOLLOW refuses a symlink, so a file planted at
+    the name is never written through or truncated. Raises Collision when the name is taken.
+    """
     try:
-        os.fchmod(fd, 0o600)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError:
+        raise Collision(path)
+    Run.files.append(path)
+    os.fchmod(fd, 0o600)
+    return fd
+
+
+def write_new(path, data):
+    """A new file only this user can read, holding data: a private issue body may be in it."""
+    fd = create_new(path)
+    try:
         view = memoryview(data)
         while view:
             view = view[os.write(fd, view):]
     finally:
         os.close(fd)
+
+
+def private_dir(path, what):
+    """Refuse a folder another user owns or can write in: they could plant a file at a name this
+    run is about to create, or read the bodies kept there."""
+    try:
+        st = os.stat(path)
+    except OSError as e:
+        raise Stop(1, 'tick.py: cannot read the %s %s: %s' % (what, path, e.strerror))
+    if st.st_uid != os.geteuid():
+        raise Stop(1, 'tick.py: refused: the %s %s belongs to another user. Use a folder of your '
+                      'own. Nothing was edited.' % (what, path))
+    if st.st_mode & 0o022:
+        raise Stop(1, 'tick.py: refused: the %s %s is writable by other users (mode %03o). Make '
+                      'it private (chmod go-w %s) or use another folder. Nothing was edited.'
+                   % (what, path, st.st_mode & 0o777, shlex.quote(path)))
 
 
 def cleanup():
@@ -479,6 +518,7 @@ def tick(argv):
         os.makedirs(bdir, mode=0o700, exist_ok=True)
     except OSError:
         raise Stop(1, 'tick.py: cannot create %s' % bdir)
+    private_dir(bdir, 'backup folder')
     # The lock lives in its own folder. Under the backup folder, two runs given different
     # --backup-dir values took different locks and could overwrite each other's edit.
     ldir = os.environ.get('TICK_LOCK_DIR') or state + '/claude-kit/issue-locks'
@@ -486,6 +526,7 @@ def tick(argv):
         os.makedirs(ldir, mode=0o700, exist_ok=True)
     except OSError:
         raise Stop(1, 'tick.py: cannot create %s' % ldir)
+    private_dir(ldir, 'lock folder')
     lock = '%s/issue-%s.lock' % (ldir, issue)
     Run.lock = (take_lock(lock, float(wait)), lock)
 
@@ -494,16 +535,15 @@ def tick(argv):
     k = 1
     while True:
         try:
-            fd = os.open(stem + '.before.md', os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            fd = create_new(stem + '.before.md')
             break
-        except FileExistsError:
+        except Collision:
             k += 1
             stem = '%s/issue-%s-%s-%d' % (bdir, issue, stamp, k)
         except OSError:
             raise Stop(1, 'tick.py: cannot write in %s' % bdir)
     before_path, after_path, back_path = (stem + '.before.md', stem + '.after.md',
                                           stem + '.readback.md')
-    Run.files = [before_path, after_path, back_path]
     restore = 'gh issue edit %s%s --body-file %s' % (
         issue, ' --repo ' + shlex.quote(repo) if repo else '', shlex.quote(before_path))
 
@@ -605,7 +645,11 @@ def tick(argv):
                % issue)
 
     # 7. Edit, then believe only what reads back.
-    write_new(after_path, after)
+    try:
+        write_new(after_path, after)
+    except Collision:
+        refuse('%s is already there, and tick.py never writes through or over a file it did not '
+               'create. Remove it if it is yours, then run again' % after_path)
     Run.edited = True
     # From here a stop by INT or TERM prints the restore command: the edit may land even when gh
     # is killed halfway.
@@ -625,7 +669,11 @@ def tick(argv):
         raise Stop(3, 'tick.py: edited #%s, but cannot read it back. Check it, and restore it if '
                       'needed with:\n  %s' % (issue, restore))
     if back != after:
-        write_new(back_path, back)
+        try:
+            write_new(back_path, back)
+            kept = back_path
+        except (Collision, OSError):
+            kept = '(not saved: %s was already there or could not be written)' % back_path
         diff = list(difflib.unified_diff(
             after.decode('utf-8', 'replace').splitlines(),
             back.decode('utf-8', 'replace').splitlines(), 'sent', 'read back', lineterm=''))
@@ -633,13 +681,12 @@ def tick(argv):
         for line in diff[:20]:
             err('  ' + line)
         raise Stop(3, 'Sent: %s. Read back: %s. Restore the original with:\n  %s'
-                   % (after_path, back_path, restore))
+                   % (after_path, kept, restore))
     Run.restore = None
-    for path in (after_path, back_path):
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
+    try:
+        os.unlink(after_path)   # created by this run, as the read-back above confirmed
+    except OSError:
+        pass
     out('%sed %d of %d boxes in #%s, backup %s' % (verb, len(selected), total, issue, before_path))
     return 0
 

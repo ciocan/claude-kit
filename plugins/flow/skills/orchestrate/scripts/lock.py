@@ -17,6 +17,15 @@ time. The holder may acquire again. A lock is never broken for its age. The owne
 a person decides and runs release with --force. A lock file without an owner line counts as held
 by "unknown", and only --force releases it: HELD then names no --owner command.
 
+acquire and release each hold a short flock on <dir>/.<name>.mutex while they look at the lock
+file and create or remove it. Without it, two releases by one owner and an acquire by another
+could interleave: release A passes the owner check and pauses, release B removes the lock, beta
+acquires, and A goes on and removes beta's lock, so a third session gets in while beta works.
+The mutex is held for a few system calls, never while waiting for the lock. Its file is never
+removed: a process that locked a removed file and one that locked its replacement would both
+think they hold it. status takes no mutex. When another lock.py holds the mutex for more than a
+few seconds, the call gives up with exit 2.
+
 Prints one of ACQUIRED, ALREADY HELD, RELEASED, FORCED release, FREE or HELD (with the owner, the
 time, the age, the note and how to release it).
 
@@ -24,8 +33,12 @@ Env: LOCK_OWNER is the label when --owner is absent. LOCK_DIR is the folder (def
 $XDG_STATE_HOME/claude-kit/locks, else ~/.local/state/claude-kit/locks). LOCK_POLL_S is the
 poll interval for --wait (default 5).
 
-Exit codes: 0 ok, 1 held by someone else or the wait ran out, 2 usage.
+Exit codes: 0 ok, 1 held by someone else or the wait ran out, 2 usage, or another lock.py held
+            the mutex too long.
 """
+import contextlib
+import errno
+import fcntl
 import os
 import re
 import shlex
@@ -36,6 +49,7 @@ import time
 NAME_RE = re.compile(r'[A-Za-z0-9._-]+\Z')
 POLL_RE = re.compile(r'[0-9]+(?:[.][0-9]+)?\Z')
 WAIT_RE = re.compile(r'[0-9]+\Z')
+MUTEX_WAIT_S = 5    # how long to wait for another lock.py that is mid-call
 
 
 def usage():
@@ -73,6 +87,53 @@ def read_field(lock, field, default):
             value = line[len(key):]
             return os.fsdecode(value) if value else default
     return default
+
+
+@contextlib.contextmanager
+def name_mutex(folder, name):
+    """Hold the flock on <folder>/.<name>.mutex for the length of a with block, or exit 2."""
+    path = '%s/.%s.mutex' % (folder, name)
+    try:
+        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    except OSError as e:
+        die('cannot open %s: %s' % (path, e.strerror))
+    try:
+        deadline = time.monotonic() + MUTEX_WAIT_S
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as e:
+                if e.errno not in (errno.EWOULDBLOCK, errno.EAGAIN, errno.EACCES):
+                    die('cannot lock %s: %s' % (path, e.strerror))
+                if time.monotonic() >= deadline:
+                    die('another lock.py has held %s for %ss and is mid-call on %s. Nothing was '
+                        'changed. Run again in a moment.' % (path, MUTEX_WAIT_S, name))
+                time.sleep(0.01)
+        yield
+    finally:
+        # Closing drops the flock. The file stays.
+        os.close(fd)
+
+
+def release_lock(folder, name, lock, owner, force):
+    """Under the mutex, check the owner and remove the lock file.
+
+    Returns (outcome, held by, since): outcome is free, released, forced or held. Raises OSError
+    when the file cannot be removed.
+    """
+    with name_mutex(folder, name):
+        if not os.path.exists(lock):
+            return 'free', None, None
+        o = read_field(lock, 'owner', 'unknown')
+        t = read_field(lock, 'time', 'unknown')
+        if not force and read_field(lock, 'owner', '') != owner:
+            return 'held', o, t
+        try:
+            os.unlink(lock)
+        except FileNotFoundError:
+            pass
+        return ('forced' if force else 'released'), o, t
 
 
 def lock_text(owner, note):
@@ -186,6 +247,10 @@ def main(argv):
 
     def try_acquire():
         """True when taken now or already ours, False when another holds it."""
+        with name_mutex(folder, name):
+            return create()
+
+    def create():
         for _ in range(3):
             stamp, text = lock_text(owner, note)
             try:
@@ -227,23 +292,19 @@ def main(argv):
             time.sleep(poll_s)
 
     if cmd == 'release':
-        if not os.path.exists(lock):
+        try:
+            outcome, o, t = release_lock(folder, name, lock, owner, force)
+        except OSError:
+            sys.stderr.write('could not remove %s\n' % lock)
+            return 1
+        if outcome == 'free':
             print('FREE %s' % name)
             return 0
-        o = read_field(lock, 'owner', 'unknown')
-        t = read_field(lock, 'time', 'unknown')
-        if force or read_field(lock, 'owner', '') == owner:
-            try:
-                os.unlink(lock)
-            except FileNotFoundError:
-                pass
-            except OSError:
-                sys.stderr.write('could not remove %s\n' % lock)
-                return 1
-            if force:
-                print('FORCED release of %s, was held by %s since %s' % (name, o, t))
-            else:
-                print('RELEASED %s' % name)
+        if outcome == 'forced':
+            print('FORCED release of %s, was held by %s since %s' % (name, o, t))
+            return 0
+        if outcome == 'released':
+            print('RELEASED %s' % name)
             return 0
         held()
         return 1

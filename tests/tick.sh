@@ -499,6 +499,44 @@ out=$(umask 022; "$TICK" 5 --line 1 --backup-dir "$GH_STUB/mine" 2>&1); rc=$?
 expect_code "a run with a backup folder that exists" 0 "$rc" "$out"
 expect_eq "a folder that exists keeps its mode" 755 "$(mode_of "$GH_STUB/mine")"
 
+echo "tick.py and folders or files it does not own"
+# Another user who can write in the backup folder could plant a symlink at the next .after.md
+# name, and the edit file would then be written through it. Such folders are refused before any
+# gh call.
+for m in 777 770; do
+  fresh "$B1"; mkdir -p "$GH_STUB/shared"; chmod "$m" "$GH_STUB/shared"
+  out=$(tick 5 --all --backup-dir "$GH_STUB/shared"); rc=$?
+  expect_code "a backup folder with mode $m is refused" 1 "$rc" "$out"
+  expect_has "the refusal names the folder ($m)" "backup folder $GH_STUB/shared is writable by other users" "$out"
+  [ -f "$GH_STUB/calls" ] && no "no gh call with a $m backup folder" "$(cat "$GH_STUB/calls")" || ok "no gh call with a $m backup folder"
+  expect_eq "nothing is written in the $m folder" 0 "$(ls -A "$GH_STUB/shared" | wc -l | tr -d ' ')"
+done
+fresh "$B1"; mkdir -p "$GH_STUB/sharedlocks"; chmod 777 "$GH_STUB/sharedlocks"
+out=$(TICK_LOCK_DIR="$GH_STUB/sharedlocks" "$TICK" 5 --all 2>&1); rc=$?
+expect_code "a lock folder with mode 777 is refused" 1 "$rc" "$out"
+expect_has "the refusal names the lock folder" "lock folder $GH_STUB/sharedlocks is writable by other users" "$out"
+[ -f "$GH_STUB/calls" ] && no "no gh call with a 777 lock folder" "$(cat "$GH_STUB/calls")" || ok "no gh call with a 777 lock folder"
+for m in 700 755; do
+  fresh "$B1"; mkdir -p "$GH_STUB/own"; chmod "$m" "$GH_STUB/own"
+  out=$(tick 5 --line 1 --backup-dir "$GH_STUB/own"); rc=$?
+  expect_code "a backup folder of this user with mode $m is accepted" 0 "$rc" "$out"
+done
+
+# A symlink planted at the .after.md name is refused and its target left alone. The stem holds
+# the second the run starts, so plant one for each of the next few seconds.
+fresh "$B1"; mkdir -p "$GH_STUB/own"; chmod 700 "$GH_STUB/own"
+printf 'a file of the user\n' >"$GH_STUB/victim"
+for stamp in $(python3 -B -c 'import time; [print(time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(time.time() + i))) for i in range(6)]'); do
+  ln -s "$GH_STUB/victim" "$GH_STUB/own/issue-5-$stamp.after.md"
+done
+out=$(tick 5 --all --backup-dir "$GH_STUB/own"); rc=$?
+expect_code "a symlink at the .after.md name is refused" 1 "$rc" "$out"
+expect_has "it says the name is taken" ".after.md is already there" "$out"
+expect_eq "the symlink's target is unchanged" "a file of the user" "$(cat "$GH_STUB/victim")"
+expect_eq "the planted symlinks are left in place" 6 "$(find "$GH_STUB/own" -type l | wc -l | tr -d ' ')"
+expect_eq "no edit call" 0 "$(edits)"
+expect_eq "the run's own backup is removed" 0 "$(ls "$GH_STUB/own" | grep -c 'before')"
+
 echo "tick.py stopped by a signal"
 # A TERM while gh edits: the edit may have landed, so the restore command must be printed.
 fresh "$B1"; touch "$GH_STUB/edit-hangs"

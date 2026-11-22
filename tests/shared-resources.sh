@@ -39,6 +39,16 @@ expect_file() { # name, path
 expect_gone() { # name, path
   if [ -e "$2" ]; then no "$1 (still there: $2)"; else ok "$1"; fi
 }
+py_suite() { # file under tests/py, then its arguments: run it and add its ok and FAIL lines
+  local out rc fails file=$1
+  shift
+  out=$(python3 -B "$ROOT/tests/py/$file" "$@" 2>&1); rc=$?
+  printf '%s\n' "$out"
+  PASS=$((PASS + $(printf '%s\n' "$out" | grep -c '^  ok    ')))
+  fails=$(printf '%s\n' "$out" | grep -c '^  FAIL  ')
+  FAIL=$((FAIL + fails))
+  if [ "$rc" != 0 ] && [ "$fails" = 0 ]; then no "tests/py/$file ran to the end (exit $rc)"; fi
+}
 
 # Nothing from the caller's environment may point the scripts at a real folder.
 unset LOCK_DIR LOCK_OWNER CLAIMS_DIR CLAIMS_OWNER XDG_STATE_HOME
@@ -281,15 +291,52 @@ expect_file "the default folder is under HOME" "$HOME/.local/state/claude-kit/cl
 CLAIMS_DIR="$T/envclaims" "$C" claim x v1 --owner alpha >/dev/null 2>&1
 expect_file "CLAIMS_DIR moves the folder" "$T/envclaims/x/alpha.claim"
 
+echo "claims.py and claims it cannot read"
+# A folder that cannot be listed once read as empty: check said CLEAR over beta's claim, and the
+# push that followed would have overwritten beta's deployment.
+U="$T/unreadable"
+"$C" claim api feat/b@1 --owner beta --dir "$U" >/dev/null 2>&1
+chmod 000 "$U/api"
+if ls "$U/api" >/dev/null 2>&1; then
+  ok "an unreadable claims folder (skipped: this user reads it anyway)"
+else
+  out=$("$C" check api --owner alpha --dir "$U" 2>&1); rc=$?
+  expect_code "check on a folder it cannot list" 2 "$rc" "$out"
+  expect_not "check does not say CLEAR" "CLEAR" "$out"
+  expect_has "it names the folder" "cannot read the claims in $U/api" "$out"
+  out=$("$C" list api --dir "$U" 2>&1); rc=$?
+  expect_code "list of a folder it cannot list" 2 "$rc" "$out"
+  expect_not "list does not say no claims" "no claims" "$out"
+  out=$("$C" list --dir "$U" 2>&1); rc=$?
+  expect_code "list of everything with one folder it cannot list" 2 "$rc" "$out"
+fi
+chmod 700 "$U/api"
+chmod 000 "$U/api/beta.claim"
+if cat "$U/api/beta.claim" >/dev/null 2>&1; then
+  ok "an unreadable claim file (skipped: this user reads it anyway)"
+else
+  out=$("$C" check api --owner alpha --dir "$U" 2>&1); rc=$?
+  expect_code "an unreadable claim counts as another owner's claim" 1 "$rc" "$out"
+  expect_has "it is listed under its owner" "api  beta  -  unknown  age unknown  claim file unreadable" "$out"
+  expect_has "it says which file it could not read" "cannot read $U/api/beta.claim" "$out"
+  out=$("$C" list api --dir "$U" 2>&1); rc=$?
+  expect_code "list with an unreadable claim file exits 2" 2 "$rc" "$out"
+  expect_has "list still shows its row" "api  beta  -" "$out"
+fi
+chmod 600 "$U/api/beta.claim"
+out=$("$C" check missing --owner alpha --dir "$U" 2>&1); rc=$?
+expect_code "a resource folder that does not exist is clear" 0 "$rc" "$out"
+
 echo "nothing written outside the temp folder"
 want="$HOME/.local
 $HOME/.local/state
 $HOME/.local/state/claude-kit
 $HOME/.local/state/claude-kit/claims
 $HOME/.local/state/claude-kit/claims/home
-$HOME/.local/state/claude-kit/locks"
-got=$(find "$HOME" -mindepth 1 | sort)
-[ "$got" = "$want" ] && ok "HOME holds only the default folders" || no "HOME holds only the default folders" "$got"
+$HOME/.local/state/claude-kit/locks
+$HOME/.local/state/claude-kit/locks/.home.mutex"
+got=$(find "$HOME" -mindepth 1 | LC_ALL=C sort)
+[ "$got" = "$want" ] && ok "HOME holds only the default folders and the lock's mutex file" || no "HOME holds only the default folders and the lock's mutex file" "$got"
 got=$(find "$T/work" -mindepth 1)
 [ -z "$got" ] && ok "nothing was written in the working folder" || no "nothing was written in the working folder" "$got"
 
@@ -322,6 +369,9 @@ for round in 1 2 3 4 5; do
 done
 expect_eq "never two holders at once, five rounds of six workers" 0 "$overlaps"
 expect_eq "every worker got its turn" 0 "$missing"
+
+echo "lock.py release and acquire interleaved (tests/py/test_lock.py)"
+py_suite test_lock.py "$L"
 
 echo
 echo "$PASS passed, $FAIL failed"

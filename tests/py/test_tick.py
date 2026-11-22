@@ -199,6 +199,48 @@ def tests(tmp):
     check('the guard refuses an edit that changes nothing',
           guard(B1, B1, [2]) == ([], 'the edited body changes lines none, the selection is lines 2'))
 
+    # Files are created new, never written through a symlink or over a file already there.
+    files = os.path.join(tmp, 'files')
+    os.mkdir(files, 0o700)
+    victim = os.path.join(files, 'victim')
+    with open(victim, 'wb') as f:
+        f.write(b'a file of the user\n')
+    link = os.path.join(files, 'issue-5.after.md')
+    os.symlink(victim, link)
+    tick.Run.files = []
+    try:
+        tick.write_new(link, b'body')
+        check('write_new refuses a symlink at the name', False, 'it wrote')
+    except tick.Collision:
+        check('write_new refuses a symlink at the name', True)
+    with open(victim, 'rb') as f:
+        check("the symlink's target is unchanged", f.read() == b'a file of the user\n')
+    check('the symlink stays a symlink', os.path.islink(link))
+    check('a refused name is not marked for cleanup', tick.Run.files == [], tick.Run.files)
+    try:
+        tick.write_new(victim, b'body')
+        check('write_new refuses a file already at the name', False, 'it wrote')
+    except tick.Collision:
+        check('write_new refuses a file already at the name', True)
+    fresh_path = os.path.join(files, 'new.after.md')
+    tick.write_new(fresh_path, b'body')
+    check('write_new creates a new file with mode 600',
+          os.stat(fresh_path).st_mode & 0o777 == 0o600, oct(os.stat(fresh_path).st_mode))
+
+    # Folders another user could write in are refused.
+    for mode, refused in ((0o777, True), (0o770, True), (0o757, True), (0o755, False),
+                          (0o700, False)):
+        folder = os.path.join(tmp, 'dir%o' % mode)
+        os.mkdir(folder)
+        os.chmod(folder, mode)
+        try:
+            tick.private_dir(folder, 'backup folder')
+            got = False
+        except tick.Stop:
+            got = True
+        check('a folder with mode %o is %s' % (mode, 'refused' if refused else 'accepted'),
+              got == refused)
+
     # The guard is wired in: with an edit builder that drops the last line, tick.py refuses and
     # gh never gets an edit call.
     stub_dir = os.path.join(tmp, 'bin')
