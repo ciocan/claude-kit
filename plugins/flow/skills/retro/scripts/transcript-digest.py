@@ -37,7 +37,11 @@ What each count means:
   answers to questions results of those calls that carry an answer, paired through the tool-use
                        id. They are the user's words but not messages: --user-messages lists them
                        as kind "answer", and they are not in the user message count. A question
-                       refused or dismissed counts as declined.
+                       rejected with words typed in place of the options is an answer; rejected
+                       with no words it counts as declined.
+  feedback on rejected tool calls
+                       words the user typed while rejecting any other tool call. Listed as kind
+                       "answer" with the tool named, and shown uncut in the digest.
   launches             Agent (or the older Task) tool calls, by subagent_type and model. A launch
                        with no subagent_type is "(default)"; with no model, "(inherit)".
   agent messages sent  SendMessage tool calls, that is messages to a running agent.
@@ -143,6 +147,9 @@ DENIAL_TEXTS = [
 ]
 
 LAUNCH_TOOLS = ('Agent', 'Task')
+# A rejected tool call starts with REFUSAL. When the user typed a reason, it follows FEEDBACK_LEAD.
+REFUSAL = "The user doesn't want to proceed with this tool use"
+FEEDBACK_LEAD = 'To tell you how to proceed, the user said:'
 # The fixed words around the answers in an AskUserQuestion result.
 ANSWER_LEAD = re.compile(r'^\s*(?:Your questions have been answered|The user answered):\s*')
 ANSWER_TAIL = re.compile(r'\s*You can now continue with these answers in mind\.\s*$')
@@ -265,8 +272,19 @@ def answer_text(result, body):
                 '; '.join(f'"{q}" = "{a}"' for q, a in pairs))
     shown = ANSWER_LEAD.sub('', ANSWER_TAIL.sub('', body.strip())).strip()
     pairs = re.findall(r'"([^"]*)"="([^"]*)"', shown)
-    listed = '; '.join(f'{a} (to: {q})' for q, a in pairs) if pairs else shown
-    return listed, shown
+    # A quote inside an answer cuts the match short. Use the pairs only when they rebuild the
+    # whole text; otherwise list the text as it stands rather than half an answer.
+    if pairs and ', '.join(f'"{q}"="{a}"' for q, a in pairs) == shown.rstrip('.').strip():
+        return '; '.join(f'{a} (to: {q})' for q, a in pairs), shown
+    return shown, shown
+
+
+def rejection_feedback(body):
+    """The words a user typed when rejecting a tool call, or None when there are none."""
+    s = body.lstrip()
+    if not s.startswith(REFUSAL) or FEEDBACK_LEAD not in s:
+        return None
+    return s.split(FEEDBACK_LEAD, 1)[1].strip() or None
 
 
 def merge_key(text, command):
@@ -320,20 +338,20 @@ class Messages:
             cands = [m for m in self.by_key.get(key, ())
                      if m['state'] == 'live' and m['mergeable'] and source not in m['sources']]
             near = [m for m in cands if any(abs(sec - s) <= self.window for s in m['secs'])]
-            if near:
-                # The queue hands messages over in order. When the same text waits more than once,
-                # a delivery belongs to the oldest copy not yet delivered: first one a remove
-                # record already named, then the oldest. Otherwise the nearest earlier sighting.
-                fresh = [m for m in near if 'enqueue' in m['sources'] and not self._sighted(m)]
-                fresh.sort(key=lambda m: not m['removed'])
-                target = fresh[0] if fresh else near[-1]
-                return self._merge(target, sec, source, queued, text, command), False
-            # A queued message waits until the session is free, which can be long after the
-            # window. While it is still in the queue, its delivery is the same message.
-            waiting = [m for m in cands if source == 'user' and self._waiting(m) and m['secs'][0] <= sec]
+            # The queue hands messages over in order, and a queued message waits until the
+            # session is free, which can be long after the window. So a delivery (an attachment
+            # or a user record) belongs to the oldest copy of the text still waiting for one,
+            # whatever the gap: first a copy a remove record already named, then the oldest.
+            waiting = [m for m in cands if 'enqueue' in m['sources'] and not self._sighted(m)
+                       and m['secs'] and (m in near or m['secs'][0] <= sec)]
             if waiting:
-                self.late += 1
-                return self._merge(waiting[0], sec, source, queued, text, command), False
+                waiting.sort(key=lambda m: not m['removed'])
+                target = waiting[0]
+                if target not in near:
+                    self.late += 1
+                return self._merge(target, sec, source, queued, text, command), False
+            if near:
+                return self._merge(near[-1], sec, source, queued, text, command), False
         m = {'ts': ts or '', 'text': text, 'key': key, 'raw': raw if raw is not None else text,
              'sources': {source}, 'secs': [sec] if sec is not None else [], 'queued': queued,
              'mergeable': mergeable, 'command': command, 'state': 'live', 'removed': False,
@@ -433,7 +451,8 @@ def scan(args, dg):
         'first': None, 'last': None, 'records': 0, 'unparsed': 0, 'malformed': 0, 'sidechain': 0,
         'compactions': [], 'compaction_summaries': 0,
         'system_lines': collections.Counter(), 'queued_system_lines': collections.Counter(),
-        'interrupts': 0, 'asked': 0, 'asks': set(), 'answers': [], 'declined': 0, 'launches': collections.Counter(), 'sent': 0,
+        'interrupts': 0, 'asked': 0, 'tools': {}, 'answers': [], 'answered': 0, 'declined': 0,
+        'feedback': 0, 'launches': collections.Counter(), 'sent': 0,
         'tool_errors': 0, 'denials': collections.Counter(), 'stop_hook': 0,
         'goal_feedback': 0, 'goal_notifications': 0, 'turns': {}, 'output_tokens': 0,
     }
@@ -579,16 +598,28 @@ def scan(args, dg):
                     if p.get('is_error'):
                         c['tool_errors'] += 1
                     tid = p.get('tool_use_id') if isinstance(p.get('tool_use_id'), str) else None
-                    asked = tid in c['asks']
-                    c['asks'].discard(tid)
+                    tool = c['tools'].pop(tid, None) if tid else None
+                    asked = tool == 'AskUserQuestion'
                     if denial:
                         c['denials'][str(denial)] += 1
-                    if asked and (denial or p.get('is_error')):
+                    feedback = rejection_feedback(body) if (denial or p.get('is_error')) else None
+                    if feedback and asked:
+                        # The user turned down the options and answered in their own words.
+                        c['answered'] += 1
+                        c['answers'].append((ts, feedback + ' (declined the options)'))
+                        dg.emit(f'[{t}] USER DECLINED THE OPTIONS AND ANSWERED IN THEIR OWN WORDS: {feedback}')
+                    elif feedback:
+                        # A reason typed while rejecting any other tool call is an instruction too.
+                        c['feedback'] += 1
+                        c['answers'].append((ts, f'{feedback} (rejected {tool or "a tool call"})'))
+                        dg.emit(f'[{t}] USER REJECTED {tool or "a tool call"} AND SAID: {feedback}')
+                    elif asked and (denial or p.get('is_error')):
                         c['declined'] += 1
                         dg.emit(f'[{t}] USER DECLINED THE QUESTION ({denial or "error"}): {" ".join(body.split())[:400]}')
                     elif asked:
                         listed, shown = answer_text(o.get('toolUseResult'), body)
                         if listed:
+                            c['answered'] += 1
                             c['answers'].append((ts, listed))
                             dg.emit(f'[{t}] USER ANSWERED: {shown[:3000]}')
                     elif denial:
@@ -630,14 +661,15 @@ def scan(args, dg):
                 c['turns'][mid] = size
                 c['output_tokens'] += u.get('output_tokens') or 0
             for p in content if isinstance(content, list) else ():
+                if p.get('type') == 'tool_use' and isinstance(p.get('id'), str):
+                    # Tool names by id, so a result can be told apart: answer, refusal, error.
+                    c['tools'][p['id']] = str(p.get('name'))
                 if p.get('type') == 'text' and (p.get('text') or '').strip():
                     dg.emit(f"\n[{t}] ASSISTANT: {p['text']}")
                 elif p.get('type') == 'tool_use':
                     i, name = p.get('input') or {}, p.get('name')
                     if name == 'AskUserQuestion':
                         c['asked'] += 1
-                        if isinstance(p.get('id'), str):
-                            c['asks'].add(p['id'])
                         dg.emit(f'[{t}] ASKED THE USER: {str(i)[:600]}')
                     elif name in LAUNCH_TOOLS:
                         role = str(i.get('subagent_type') or '(default)')
@@ -717,7 +749,8 @@ def summary(c, msgs):
         'queued_system_lines': dict(sorted(c['queued_system_lines'].items())),
         'interrupts': c['interrupts'],
         'questions_to_user': c['asked'],
-        'answers_to_questions': len(c['answers']),
+        'answers_to_questions': c['answered'],
+        'rejection_feedback': c['feedback'],
         'questions_declined': c['declined'],
         'launches': {'total': sum(c['launches'].values()), 'by_role': dict(by_role)},
         'agent_messages_sent': c['sent'],
@@ -748,7 +781,8 @@ def print_text(s):
     print('system lines: ' + (', '.join(f'{k} {v}' for k, v in s['system_lines'].items()) or 'none'))
     print('queued system lines: ' + (', '.join(f'{k} {v}' for k, v in s['queued_system_lines'].items()) or 'none'))
     print(f"interrupts: {s['interrupts']}, questions to the user: {s['questions_to_user']}, "
-          f"answers to questions: {s['answers_to_questions']}, declined: {s['questions_declined']}")
+          f"answers to questions: {s['answers_to_questions']}, declined: {s['questions_declined']}, "
+          f"feedback on rejected tool calls: {s['rejection_feedback']}")
     print(f"subagent launches: {s['launches']['total']}")
     for role, models in sorted(s['launches']['by_role'].items()):
         for model, n in sorted(models.items()):

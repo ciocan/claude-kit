@@ -25,7 +25,8 @@ of the tracker, so no duration in it could be used.
   them every authorisation given that night. The script reads both. A message the user pulled
   back from the queue before it was delivered is not counted, and the digest marks it withdrawn.
 - **Answers to questions.** When the session asked with a question dialog, the user's choice is
-  stored as a tool result. The script lists it as an `answer` next to the typed messages.
+  stored as a tool result. So are the words a user types when rejecting a question or a tool
+  call. The script lists both as an `answer` next to the typed messages.
 - **Typed is not always the user.** A line another session types into this session's pane is
   stored as the user's own. Before an authorisation goes in the table, check who wrote it.
 - **The tracker.** Merge and close times, pull requests, lines changed, CI runs and reruns come

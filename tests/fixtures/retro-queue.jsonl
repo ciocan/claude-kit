@@ -41,3 +41,11 @@
 {"type":"queue-operation","operation":"remove","timestamp":"2026-02-03T12:10:20.000Z","reason":"absorbed_mid_turn","content":"hold the release"}
 {"type":"attachment","timestamp":"2026-02-03T12:10:20.100Z","attachment":{"type":"queued_command","prompt":"hold the release","commandMode":"prompt","origin":{"kind":"human"}}}
 {"type":"queue-operation","operation":"popAll","timestamp":"2026-02-03T12:10:30.000Z","content":"hold the release"}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T13:00:00.000Z","content":"merge the hotfix"}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T13:06:40.000Z","content":"merge the hotfix"}
+{"type":"attachment","timestamp":"2026-02-03T13:08:20.000Z","attachment":{"type":"queued_command","prompt":"merge the hotfix","commandMode":"prompt","origin":{"kind":"human"}}}
+{"type":"queue-operation","operation":"remove","timestamp":"2026-02-03T13:08:20.500Z","reason":"absorbed_mid_turn","content":"merge the hotfix"}
+{"type":"queue-operation","operation":"popAll","timestamp":"2026-02-03T13:08:30.000Z","content":"merge the hotfix"}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T14:00:00.000Z","content":"rotate the keys"}
+{"type":"attachment","timestamp":"2026-02-03T14:06:00.000Z","attachment":{"type":"queued_command","prompt":"rotate the keys","commandMode":"prompt","origin":{"kind":"human"}}}
+{"type":"queue-operation","operation":"remove","timestamp":"2026-02-03T14:06:00.500Z","reason":"absorbed_mid_turn","content":"rotate the keys"}
