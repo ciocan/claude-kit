@@ -17,7 +17,8 @@ right of an equals sign reaches the output.
 A name is what stands before the first "=" or ":" of an assignment line, with an optional
 "export " in front. Blank lines and comments are skipped. A quote may open anywhere in a value
 (TOKEN=prefix"first line), so every line is scanned to its end: double quotes, single quotes and
-backticks. Outside quotes a # after a space starts a comment.
+backticks. Outside quotes a # after a space starts a comment, and a backslash at the end of a
+line carries the value on to the next line.
 
 Env files are read by different programs with different rules, and the rules differ on one point
 that matters here: whether a backslash escapes a single quote inside single quotes. A shell says
@@ -38,9 +39,13 @@ ASSIGN = re.compile(r'^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*[=:](.*)$',
 SEPARATOR = re.compile(r'[=:]')
 
 
-def scan(text, quote, escape_in_single):
-    """Walk through value text and return the quote that is still open at its end, or None.
+CONTINUES = 'continues'  # the value goes on to the next line: a backslash ended this one
 
+
+def scan(text, quote, escape_in_single):
+    """Walk through value text and say what is still open at its end.
+
+    Returns the quote that is open, CONTINUES when an unquoted backslash ends the line, or None.
     quote is the quote already open when the text starts: a continuation line of a value.
     escape_in_single says whether a backslash escapes the next character inside single quotes.
     """
@@ -54,6 +59,8 @@ def scan(text, quote, escape_in_single):
             if ch == quote:
                 quote = None
         elif ch == '\\':
+            if i == len(text) - 1:
+                return CONTINUES
             i += 2
             prev = 'x'
             continue
@@ -67,7 +74,9 @@ def scan(text, quote, escape_in_single):
 
 
 def advance(quote, line, escape_in_single):
-    """The open quote of one reading after this line, given its open quote before it."""
+    """What one reading holds open after this line, given what it held open before it."""
+    if quote == CONTINUES:
+        return scan(line, None, escape_in_single)  # the whole line is more of the value
     if quote:
         return scan(line, quote, escape_in_single)
     if not line.strip() or line.lstrip().startswith('#'):

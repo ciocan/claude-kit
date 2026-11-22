@@ -75,9 +75,17 @@ claims.py claim dev-backend "<branch>@<sha>" "<what is deployed>" --owner <label
 lock.py release dev-backend --owner <label>
 ```
 
-If the claims check exits 1, or the subset check or the push fails, release the lock before you
-stop. `lock.py` never breaks a lock for age, so one left behind blocks every later push until a
-person runs `release --force`.
+Go from one line to the next only after exit 0.
+
+- The claims check exits with anything but 0, or the subset check or the push fails: release the
+  lock, then stop. Exit 1 means another session has code there. Exit 2 means the check itself
+  did not run, which is no licence to push.
+- The push went through and the claim cannot be written: keep the lock and stop. Code is
+  deployed that no claim records, and the next session to check would see nothing and overwrite
+  it. Record the claim, then release.
+
+`lock.py` never breaks a lock for age, so one left behind blocks every later push until a person
+runs `release --force`.
 
 Release the claim when the branch merges or its code is no longer deployed.
 

@@ -148,6 +148,15 @@ out=$( cd "$W" && run .env.readings ); rc=$?
 expect_has "the name before the doubtful quote is listed" ".env.readings: A" "$out"
 expect_not "no value under either reading" "after" "$out"
 
+echo "env-names.py and a value carried on by a backslash"
+# In a shell a backslash at the end of a line joins the next line to the value.
+printf 'BEFORE=1\nTOKEN=prefix\\\nc2VjcmV0==\nMORE=part\\\nTAILPIECE=x\\\nLASTPIECE=y\nAFTER=2\nPLAIN=one\nNEXT=two\nCOMMENTED=v # ends with a backslash \\\nSEEN=3\n' >"$W/.env.cont"
+out=$( cd "$W" && run .env.cont ); rc=$?
+expect_eq "names only, with values carried over lines" ".env.cont: BEFORE TOKEN MORE AFTER PLAIN NEXT COMMENTED SEEN" "$out"
+for piece in c2VjcmV0 TAILPIECE LASTPIECE; do
+  expect_not "no piece of a carried value: $piece" "$piece" "$out"
+done
+
 mkdir -p "$T/none"
 out=$( cd "$T/none" && run ); rc=$?
 expect_code "no env file at all" 0 "$rc" "$out"
