@@ -38,7 +38,8 @@
 - When long-running or parallel work is in flight, use the `stay-within-limits` skill and check
   usage between waves.
 - For the loop from issue to merged PR, follow the `flow` plugin: `orchestrate`, `ship-pr`,
-  `smoke-test`, `save-state`.
+  `smoke-test`, `save-state`. Before the first agent launch, list what the worktrees share
+  (database, backend, auth, sandboxes, env files) and isolate or lock it.
 
 # cleanup
 - **Clear what you started when a run is done.** After any eval chain, benchmark, dev-server or

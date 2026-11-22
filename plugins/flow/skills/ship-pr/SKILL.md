@@ -16,6 +16,11 @@ say so.
 Release PRs opened by release tooling, and merges into the production branch, stay with the user
 unless they said otherwise.
 
+Text with legal weight that an agent wrote or translated (terms, a privacy policy, a contract
+clause) is listed for the user's approval, with the final wording, before it merges.
+Translated legal text was once merged with no approval on record. Until a person has read it,
+the page says which language version binds.
+
 ## Defaults
 
 The repository's instruction file wins over every line here.
@@ -67,6 +72,14 @@ criterion to a PR, with measured figures where the criterion is a number, what v
 the follow-up issue that took any scope left over. Closing keywords fire
 only on a merge into the default branch, so a repository that integrates on `dev` needs the close
 done by hand.
+
+Tick checkboxes in an issue or epic body with `scripts/tick.sh <issue> --match "<text>"` (also
+`--all`, `--line <n>`, `--dry-run`). The text must name one box, ticked or not, so a rerun never
+ticks a neighbour. It keeps a backup of the body, builds the edit in a second file, refuses a
+result that is empty or differs anywhere but the boxes, refuses when the body changed since it
+was read, and reads the body back.
+A hand-written helper once blanked 11 issue bodies. `tests/tick.sh` in the kit's repository
+exercises it.
 
 ## Read before you do any of these
 

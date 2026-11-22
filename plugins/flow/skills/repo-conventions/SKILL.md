@@ -47,6 +47,8 @@ description: Set up or audit a repository's agent instruction file (AGENTS.md, w
 ## When the user states a rule
 
 "Instruct it to always run lint and format after each change" means edit the instruction file.
+Edit it where the user is working when they asked for it there. Otherwise edit it on a branch,
+and say in either case whether the change is committed (`save-state`).
 
 - Put the rule in the section it belongs to, in one or two lines, with the reason when the reason
   is not obvious.

@@ -27,10 +27,27 @@ If a `grilling` skill is installed, it runs the interview. Apply the question fo
 
 - Write the decisions where the repository keeps them: `docs/decisions/`, an ADR, or a PRD under
   `docs/`. Each entry holds the decision, the reason, and what was rejected.
+- The record is written in a worktree on a branch of its own, never in the user's checkout, and
+  it is on the integration branch before the first issue cites it and before the first agent
+  starts. Which checkout, who commits and what to do under a no-commit rule are in `save-state`.
+  A record left untracked in one checkout is in no worktree cut from the base: the first agents
+  of one epic were told to read a file their worktrees did not have.
 - Some designs end in a document. When the user asks for a design doc or an implementation plan,
   write that, with the reasoning for each section, and stop. File issues only when asked.
 - When the user wants to see it first ("show me a few variants before building"), produce a mock or
   an artifact with variants before any issue is filed.
+
+## The failure-mode pass
+
+Before filing anything that touches money, access or an external dependency, send a fresh agent
+over the spec, not the code. It answers, for each dependency: what happens when it answers late,
+fails after reporting success, answers twice, answers out of order, or never answers. Each answer
+becomes an acceptance criterion or a written out-of-scope line.
+
+Implementers, reviewers and verifiers all work from the same criteria, so a case the criteria
+miss is missed by all of them. Access was once granted when a subscription became active, before
+the first payment had cleared. Every agent tested with an instant payment method, more than 70
+review and verification runs passed it, and it stayed on the integration branch for 37 hours.
 
 ## Filing
 
@@ -40,11 +57,21 @@ If a `grilling` skill is installed, it runs the interview. Apply the question fo
   acceptance criteria, the smoke test (what to run or which screen to walk, and what it must show),
   its blockers by issue number, and the files it will probably touch.
 - Give the epic and its sub-issues one shared label so they list together.
+- Record on the epic which decision classes the user keeps. Default: money, legal text, privacy,
+  security, production. A ruling in a kept class goes to the user with a recommendation. A general
+  "use your judgement and log it" does not cover it unless the grant names the class.
 - Write each sub-issue so the implementer does not have to guess.
 - Plan in phases and agent runs. No estimates in human weeks, and no calendar unless asked.
 - Mark which slices can run in parallel. Those form the waves.
 - Ask once how the work should land: one PR per issue, or one branch and one PR with a commit per
   sub-issue. Frontend epics often take the second form.
+- In the same round, ask how the decision record lands: committed and merged now, which is the
+  recommendation, or carried in the first slice's pull request. In the second case every earlier
+  brief quotes what it needs and gives the path of the worktree copy.
+- Before filing, and again before the first launch, check that the base holds what the issues
+  cite: `scripts/cited-paths.sh origin/<base> --path <record>`, or pipe an issue body into it
+  (`gh issue view <n> --json body -q .body | scripts/cited-paths.sh origin/<base> -`). A missing
+  path is fine only when the slice will create that file.
 
 If a `to-issues` skill is installed, use it for the slicing.
 

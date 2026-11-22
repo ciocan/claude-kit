@@ -22,6 +22,11 @@ Rules in force for you, unless the brief says otherwise:
   report as a command for the orchestrator.
 - Leave shared things alone: build caches, servers and ports you did not start, containers you
   did not start. Format only the files you touched.
+- Use the env file the brief names. If you find that your env reaches production (a live key, a
+  production queue or database), stop and say so.
+- A database, backend or sandbox that other agents share is not yours to push to, unless the brief
+  grants it by name. Use a test user and organisation of your own, never a shared account. Never
+  `git stash`: every worktree shares the stash.
 - Before a heavy run check `free -g` and `uptime`, and wait when the machine is loaded. Run
   commands in the foreground. If you must wait for something, wait on a marker line in a log,
   never on `pgrep -f`.

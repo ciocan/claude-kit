@@ -38,6 +38,9 @@ Waves: <A = ...; B = ... after ...>.
   Cleared: <worktrees, servers, containers>. Host: <disk free>.
 ```
 
+Take every stamp in the log from `date -u`, never from memory. `note.sh add` in `long-haul`
+writes the entry heading for you.
+
 ## Rule or grant note
 
 ```markdown
@@ -75,9 +78,15 @@ metadata:
 
 Asked <date time UTC> after <what raised the questions>.
 
-- <question>. Chosen: <option>. Consequence: <code change | new issue #n | order of work>.
-- <question>. Chosen: <option>. Rejected: <option>, because <reason>.
+- [user] <question>. Chosen: <option>. Consequence: <code change | new issue #n | order of work>.
+- [user] <question>. Chosen: <option>. Rejected: <option>, because <reason>.
+- [session] <ruling taken alone>. Reason: <one line>. Overrule by: <how>.
+- [session, kept class: <money | legal text | privacy | security | production>] <what I
+  recommend>. Not decided. Waits for the user.
 - Approved in advance: once <condition>, run <steps> without asking again.
+
+Tag every line when you write it. In one log 82 of 107 rulings carried no tag and had to be
+attributed afterwards.
 
 **How to apply:** <which issues or briefs these bind>. Related: [[...]].
 ```

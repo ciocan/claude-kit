@@ -43,7 +43,8 @@ the cost at three traffic levels from the measured cost per request.
 ## The report
 
 A table, then conclusions and a recommendation, then what was not tested. Put the technical
-version in the repository's docs. Write a shorter version for a non-technical reader when asked.
+version in the repository's docs, on a branch and never loose in the user's checkout
+(`save-state`). Write a shorter version for a non-technical reader when asked.
 `research-to-gist` covers delivery.
 
 ## Sizing a full run

@@ -35,12 +35,39 @@ Git and merge traps are in the `ship-pr` skill.
 - **A file every PR appends to conflicts with every open PR.** After merging one, merge main into
   the open branches, and land such PRs one at a time.
 
+## Shared backends and sandboxes
+
+The checklist and the scripts are in [shared-resources.md](shared-resources.md).
+
+- **The check and the push are two commands.** A check chained to a push listed a peer session's
+  two functions and removed them in the same breath. That session's feature was broken on the dev
+  backend for 28 minutes. Run the check, read it, then push.
+- **A peer's unmerged branch on the shared backend means push the union or wait.** Pushing one
+  tree removes what the other deployed. Two runs recorded eight or more such overwrites. Read the
+  claims first (`claims.sh check`).
+- **Local sign-ins throttle CI.** An auth provider limits a dev instance as a whole. A verifier
+  that created 21 users while two pull requests ran browser tests turned both red. Two local test
+  batches in the 40 minutes before a push did it again.
+- **A copied env file reaches production.** A verifier ran its local server on a copied env file
+  and reached production through it. Agents get a dev-only env file.
+- **One test user and one organisation per agent.** A brief told four agents to add the shared
+  staff test user to their organisations. A CI spec failed and new sign-ins landed in another
+  agent's organisation.
+
 ## Shell and processes
 
 - **`pkill -f <text>` kills your own shell.** The shell's command line contains the text. Take the
   pid from `ps -eo pid,args | grep -E "[n]ame"` and `kill <pid>`.
 - **A waiter that polls `pgrep -f <name>` never ends.** It matches itself and its siblings. 22 such
   shells outlived their task by three hours. Wait on a marker line in a log file.
+- **`mkdir` is not a lock on every machine.** Where coreutils is the Rust rewrite (uutils 0.10),
+  two `mkdir` calls on one path at the same moment both exited 0 in 22 of 300 tries, and a lock
+  built on it let two writers in. Create the lock file from the shell with `set -C`, which opens
+  it exclusively, as `lock.sh` does.
+- **Never read and write the same file in one expression.** A helper opened a file for writing
+  before it read it and blanked the bodies of 11 issues for 47 minutes. A verifier noticed, and
+  they came back from the tracker's edit history. Build the new content in a second file, check
+  it, then move it. For issue checkboxes use `tick.sh` in `ship-pr`.
 - **A gate piped into `tail` hides its failure.** The pipe returns tail's exit code. Write the
   output to a file and branch on `$?`.
 - **A backgrounded wait dies at the tool's time limit.** Long waits go in a script started with

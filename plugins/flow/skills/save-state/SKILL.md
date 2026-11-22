@@ -16,6 +16,21 @@ description: Write the session's working state to durable notes so the work surv
 
 When a ledger or the git history disagrees with a memory note, the ledger and git win.
 
+## A document written for the repository
+
+A decision record, a handoff, a report, a record of rounds, a script for the user: anything the
+session writes that belongs in the repository and is not part of a slice.
+
+- Write it in a worktree, on a branch of its own cut from the integration branch. Never in the
+  user's checkout, unless they asked for the edit there ("work here").
+- With a commit grant: commit it and land it as its own small pull request (`ship-pr`).
+- Under a no-commit rule: stage it on that branch, write the commit message, and give the user one
+  command, listed under what they owe. An untracked file that "lands later" is not a state to
+  leave. One session left a decision record untracked in the user's checkout, the user committed
+  it by hand, and the session then moved the file, which deleted a tracked file from their tree.
+- Before you move or edit it later, look at who holds it now: `git log -1 -- <path>` on the base,
+  `git status` in the worktree. The user may have committed it since.
+
 ## Three kinds of note
 
 Templates for all three are in [references/templates.md](references/templates.md).
@@ -27,7 +42,7 @@ Templates for all three are in [references/templates.md](references/templates.md
    and time. Record what it covers, what it does not, and whether it ends (one night, one epic,
    until revoked). Label your own reading of an unclear word as yours.
 3. **Decision note**, one per round of decisions. Each question, the option chosen, what follows
-   from it.
+   from it, and a tag that says whose decision it was: the user's or the session's.
 
 Keep grants and state in separate notes. A grant that grows a state log becomes unreadable.
 
@@ -67,8 +82,8 @@ Then continue from the first item that has no landed PR.
 When the context is nearly full, or the next stage belongs to another session, agent or machine,
 write two things:
 
-1. A handoff document in the repository: what was decided and why, what is done, what is next,
-   the traps met so far.
+1. A handoff document in the repository, written and landed as above: what was decided and why,
+   what is done, what is next, the traps met so far.
 2. A prompt to paste into the new session. It names the document to read first, the stage to do,
    the points where it must stop and smoke test, and the standing rules, for example "do not
    commit, I review after each stage".
@@ -80,7 +95,9 @@ what it must leave alone.
 ## Work that runs for weeks
 
 A goal that outlasts a session gets a program note with a top block edited in place and a log
-that is rotated. The template, the log entry and the re-anchor checklist are in `long-haul`.
+that is rotated. The template, the log entry and the re-anchor checklist are in `long-haul`, with
+`note.sh`, which stamps each entry from the machine and rotates the log. Use it for a state note
+too once the log is long: `note.sh add <note> "<bullet>"`.
 
 For a program that spans several repositories, also keep a ledger outside the memory directory:
 one folder per day, one line per merged PR. Reconcile it against

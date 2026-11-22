@@ -4,13 +4,17 @@ Fill in the angle brackets. Sections marked optional can go. The agent definitio
 this plugin (`implementer`, `reviewer`, `verifier`) already carry the standing rules, so a brief
 sent to one of them can drop the lines marked (standing).
 
-Three rules for every brief:
+Four rules for every brief:
 
 - Write it for a reader with no context. Never refer to "my memory" or "as discussed". Say "a
   benchmark note says" and quote the figure.
 - Do not put your expected answer in a research or review brief. An agent handed a hypothesis
   returns it confirmed.
-- File an issue before a brief or a doc cites its number.
+- File an issue before a brief or a doc cites its number. A document a brief tells the agent to
+  read is on the base branch, or the brief gives the path of the copy to read.
+- Every fact a brief states carries its source (a file and line, a command and its output) or the
+  words "unverified, check it". Four briefs in two runs stated false facts, and one pointed to a
+  brief file that had not been written yet.
 
 ## Implementer
 
@@ -26,6 +30,11 @@ You implement <issue ref> of <repo> (<stack>): <one sentence, the observable out
   <repo-wide formatters; format only the files you touched with <cmd>>.
 - Never target production: <flags, keys, stores>. Production steps the slice needs go in your
   report as commands for me.
+- Env: use <env file>. It holds no production credential. If you find that your env reaches
+  production (a live key, a production queue or database), stop and say so. (standing)
+- Shared with other agents and sessions: <backend by name>, lock <name>. You do not push to it, I
+  do. [Or: push only while you hold `lock.sh acquire <name>`.] Make your own test user and
+  organisation with <command>. Never use <the shared test account> for a hand check.
 - Before heavy runs check `free -g` and `uptime`. Wait while free memory is under <n> GB or load is
   over <n>. At most <one database container>.
 
@@ -131,6 +140,12 @@ untested edge cases and regressions in adjacent code.
 - You may run tests, read-only calls against <dev environment>, and servers on a free port of your
   own. Never <the user's port or checkout>. Never production. Stop every server you start.
 - <how browser checks and the smoke-test account work here>
+- Env: <env file>, no production credential. If your env reaches production, stop and say so.
+  (standing) [Read-only production requests allowed: at most <n> to <host>. Count them and stop at
+  the cap.]
+- Shared backend <name>: you do not push to it. If it changes under you, stop and give the time.
+- Name one assumption your checks share with the implementer's tests (the same payment method,
+  account type, fixture or locale) and break it.
 - A finding is evidence: file and line, the input or state, what happens, what should happen, how
   you observed it (command and output, or "by reading, not run").
 
