@@ -13,7 +13,8 @@ Usage:
                          that was meant, and a rerun of --match "#412" must never tick "#4123"
   --line <n>             the n-th checkbox in the body, counting from 1. Repeatable
   --untick               reverse the direction of all three
-  --repo <owner/repo>    passed to every gh call. Default: gh's own (the current repository)
+  --repo <owner/repo>    passed to every gh call. Default: gh's own (the current repository).
+                         -R is accepted as well, since that is what gh calls it
   --dry-run              show the lines that would change, edit nothing
   --backup-dir <dir>     where the body is saved before the edit
 
@@ -497,7 +498,7 @@ def parse(argv):
             set_mode('line')
             picks.append(int(nxt, 10))
             i += 2
-        elif a == '--repo':
+        elif a in ('--repo', '-R'):
             if not nxt:
                 die2('--repo needs <owner/repo>')
             repo = nxt

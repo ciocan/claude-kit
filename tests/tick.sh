@@ -285,6 +285,11 @@ fresh "$B1"
 out=$(tick 5 --repo o/r --match "tests"); rc=$?
 expect_code "--repo" 0 "$rc" "$out"
 expect_eq "--repo reaches both views before the edit, the edit and the read-back" 4 "$(grep -c -- '--repo o/r' "$GH_STUB/calls")"
+# gh spells this option -R as well, and a session that knows gh reaches for it first.
+: >"$GH_STUB/calls"
+out=$(tick 5 -R o/r --untick --match "tests"); rc=$?
+expect_code "-R, the short form gh uses" 0 "$rc" "$out"
+expect_eq "-R reaches every gh call as --repo" 4 "$(grep -c -- '--repo o/r' "$GH_STUB/calls")"
 expect_eq "four gh calls in all" 4 "$(wc -l <"$GH_STUB/calls" | tr -d ' ')"
 
 fresh "$B1"

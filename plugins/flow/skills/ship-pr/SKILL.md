@@ -1,6 +1,6 @@
 ---
 name: ship-pr
-description: Take finished work through commit, push, pull request, merge, issue close and cleanup, with the guards that keep a bad CI verdict or a stale branch from destroying work. Use when the user says "commit", "commit and push", "file the pr", "merge it", "merge the pr when green", "close the issue" or "fix the merge conflicts", and when an orchestrator lands an agent's branch.
+description: Take finished work through commit, push, pull request, merge, issue close and cleanup, with the guards that keep a bad CI verdict or a stale branch from destroying work. Use when the user says "commit", "commit and push", "file the pr", "merge it", "merge the pr when green", "close the issue", "tick the box", "tick the checkboxes on the epic" or "fix the merge conflicts", when a checkbox in an issue or epic body has to be ticked, and when an orchestrator lands an agent's branch.
 ---
 
 # Ship a PR
@@ -75,11 +75,13 @@ done by hand.
 
 Tick checkboxes in an issue or epic body with `scripts/tick.py <issue> --match "<text>"` (also
 `--all`, `--line <n>`, `--dry-run`). The text must name one box, ticked or not, so a rerun never
-ticks a neighbour. It keeps a backup of the body, builds the edit in a second file, refuses a
-result that is empty or differs anywhere but the boxes, refuses when the body changed since it
-was read, and reads the body back.
-A hand-written helper once blanked 11 issue bodies. `tests/tick.sh` in the kit's repository
-exercises it.
+ticks a neighbour. It keeps a backup of the body, sends the edit from memory, refuses a result
+that is empty or differs anywhere but the boxes, refuses when the body changed since it was
+read, and reads the body back.
+Never edit an issue body with `sed` and `gh issue edit`, however small the change. A
+hand-written helper once blanked 11 issue bodies, and a body read with `gh -q .body` or
+`gh api --jq .body` gains a line end on every round trip. `tests/tick.sh` in the kit's
+repository exercises the script.
 
 ## Read before you do any of these
 
