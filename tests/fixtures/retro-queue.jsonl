@@ -1,0 +1,33 @@
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T09:00:00.000Z","content":"npm run lint"}
+{"type":"queue-operation","operation":"dequeue","timestamp":"2026-02-03T09:00:19.000Z"}
+{"type":"user","timestamp":"2026-02-03T09:00:20.000Z","message":{"role":"user","content":"<bash-input>npm run lint</bash-input>"}}
+{"type":"user","timestamp":"2026-02-03T09:00:21.000Z","message":{"role":"user","content":"<bash-stdout>no problems</bash-stdout><bash-stderr></bash-stderr>"}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T09:01:00.000Z","content":"make docs"}
+{"type":"queue-operation","operation":"dequeue","timestamp":"2026-02-03T09:29:59.000Z"}
+{"type":"user","timestamp":"2026-02-03T09:30:00.000Z","message":{"role":"user","content":"<bash-input>make docs</bash-input>"}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T09:40:00.000Z","content":"ship it to production"}
+{"type":"queue-operation","operation":"popAll","timestamp":"2026-02-03T09:40:05.000Z","content":"ship it to production"}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T09:40:30.000Z","content":"ship it to staging only"}
+{"type":"attachment","timestamp":"2026-02-03T09:40:29.900Z","attachment":{"type":"queued_command","prompt":"ship it to staging only","commandMode":"prompt","origin":{"kind":"human"}}}
+{"type":"queue-operation","operation":"remove","timestamp":"2026-02-03T09:41:00.000Z","reason":"absorbed_mid_turn","content":"ship it to staging only"}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T09:50:00.000Z","content":"run the migration"}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T09:50:10.000Z","content":"then restart\nthe workers"}
+{"type":"queue-operation","operation":"popAll","timestamp":"2026-02-03T09:50:20.000Z","content":"run the migration\nthen restart\nthe workers"}
+{"type":"user","timestamp":"2026-02-03T09:51:00.000Z","origin":{"kind":"human"},"promptSource":"typed","message":{"role":"user","content":"run the migration"}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T10:00:00.000Z","content":"# Autonomous loop tick (dynamic pacing)\n\nCheck the build."}
+{"type":"user","timestamp":"2026-02-03T10:00:00.050Z","isMeta":true,"promptSource":"system","scheduledTaskId":"loop-1","message":{"role":"user","content":"# Autonomous loop tick (dynamic pacing)\n\nCheck the build."}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T10:05:00.000Z","content":"# Autonomous loop check\n\nAre the agents idle?"}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T10:10:00.000Z","content":"Your claude.ai usage limit has reset. Continue where you left off."}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T10:15:00.000Z","content":"Background agent \"Tidy the docs\" was stopped by the user."}
+{"type":"attachment","timestamp":"2026-02-03T10:15:00.100Z","attachment":{"type":"queued_command","prompt":"Background agent \"Tidy the docs\" was stopped by the user.","commandMode":"prompt"}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T10:20:00.000Z","content":"Nightly report: all green"}
+{"type":"user","timestamp":"2026-02-03T10:20:00.200Z","isMeta":true,"message":{"role":"user","content":"Nightly report: all green"}}
+{"type":"user","timestamp":"2026-02-03T10:25:00.000Z","scheduledTaskId":"wake-1","message":{"role":"user","content":"Wake up and look at the queue"}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T10:25:00.400Z","content":"Wake up and look at the queue"}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T10:40:00.000Z","content":"! not a shell command, just loud"}
+{"type":"queue-operation","operation":"dequeue","timestamp":"2026-02-03T10:40:09.000Z"}
+{"type":"user","timestamp":"2026-02-03T10:40:10.000Z","origin":{"kind":"human"},"promptSource":"queued","message":{"role":"user","content":"! not a shell command, just loud"}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-02-03T11:00:00.000Z","content":"deploy the docs site"}
+{"type":"attachment","timestamp":"2026-02-03T10:59:59.900Z","attachment":{"type":"queued_command","prompt":"deploy the docs site","commandMode":"prompt","origin":{"kind":"human"}}}
+{"type":"queue-operation","operation":"remove","timestamp":"2026-02-03T11:00:10.000Z","reason":"absorbed_mid_turn","content":"deploy the docs site"}
+{"type":"user","timestamp":"2026-02-03T11:00:40.000Z","origin":{"kind":"human"},"promptSource":"typed","message":{"role":"user","content":"deploy the docs site"}}

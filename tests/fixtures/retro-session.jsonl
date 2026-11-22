@@ -1,0 +1,56 @@
+{"type":"mode","mode":"normal"}
+{"type":"user","timestamp":"2026-01-10T10:00:00.000Z","origin":{"kind":"human"},"promptSource":"typed","message":{"role":"user","content":"fix the login redirect"}}
+{"type":"assistant","timestamp":"2026-01-10T10:00:05.000Z","message":{"id":"msg_a1","model":"model-big","usage":{"input_tokens":10,"cache_read_input_tokens":20000,"cache_creation_input_tokens":990,"output_tokens":300},"content":[{"type":"text","text":"Looking at the redirect first."}]}}
+{"type":"assistant","timestamp":"2026-01-10T10:00:06.000Z","message":{"id":"msg_a1","model":"model-big","usage":{"input_tokens":10,"cache_read_input_tokens":20000,"cache_creation_input_tokens":990,"output_tokens":300},"content":[{"type":"tool_use","id":"tu_1","name":"Agent","input":{"description":"Fix redirect","subagent_type":"flow:implementer","model":"opus","prompt":"Fix the login redirect loop."}}]}}
+{"type":"assistant","timestamp":"2026-01-10T10:01:00.000Z","message":{"id":"msg_a2","model":"model-big","usage":{"input_tokens":5,"cache_read_input_tokens":30000,"cache_creation_input_tokens":0,"output_tokens":120},"content":[{"type":"tool_use","id":"tu_2","name":"Agent","input":{"description":"Fix session expiry","subagent_type":"flow:implementer","model":"opus","prompt":"Make the session expiry match the cookie."}},{"type":"tool_use","id":"tu_3","name":"Agent","input":{"description":"Review redirect fix","subagent_type":"flow:reviewer","model":"sonnet","prompt":"Review the redirect change."}}]}}
+{"type":"assistant","timestamp":"2026-01-10T10:02:00.000Z","message":{"id":"msg_a3","model":"model-big","usage":{"input_tokens":5,"cache_read_input_tokens":40000,"cache_creation_input_tokens":0,"output_tokens":80},"content":[{"type":"tool_use","id":"tu_4","name":"Agent","input":{"description":"Verify redirect","subagent_type":"flow:verifier","model":"opus","prompt":"Try to break the redirect fix."}},{"type":"tool_use","id":"tu_5","name":"Task","input":{"description":"Old style launch","prompt":"Summarise the auth module."}}]}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-01-10T10:05:00.000Z","content":"ok release then"}
+{"type":"attachment","timestamp":"2026-01-10T10:04:59.900Z","attachment":{"type":"queued_command","prompt":"ok release then","commandMode":"prompt","origin":{"kind":"human"}}}
+{"type":"queue-operation","operation":"remove","timestamp":"2026-01-10T10:05:30.000Z","reason":"absorbed_mid_turn","content":"ok release then"}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-01-10T10:10:00.000Z","content":"also bump  the version\n"}
+{"type":"queue-operation","operation":"dequeue","timestamp":"2026-01-10T10:10:40.000Z"}
+{"type":"user","timestamp":"2026-01-10T10:10:45.000Z","origin":{"kind":"human"},"promptSource":"queued","message":{"role":"user","content":"also bump the version"}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-01-10T10:20:00.000Z","content":"check the staging logs"}
+{"type":"attachment","timestamp":"2026-01-10T10:20:00.100Z","attachment":{"type":"queued_command","prompt":"check the staging logs","commandMode":"prompt","origin":{"kind":"human"}}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-01-10T10:20:05.000Z"}
+{"type":"queue-operation","operation":"dequeue","timestamp":"2026-01-10T10:20:06.000Z"}
+{"type":"queue-operation","operation":"dequeue","timestamp":"2026-01-10T10:26:59.000Z"}
+{"type":"user","timestamp":"2026-01-10T10:27:00.000Z","origin":{"kind":"human"},"promptSource":"queued","message":{"role":"user","content":"check the staging logs"}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-01-10T10:28:00.000Z","content":"<task-notification>\n<task-id>t1</task-id>\n<status>completed</status>\n<summary>Agent \"Fix redirect\" completed</summary>\n<result>The redirect loop is fixed and tested.</result>\n</task-notification>"}
+{"type":"user","timestamp":"2026-01-10T10:28:01.000Z","origin":{"kind":"task-notification"},"promptSource":"system","message":{"role":"user","content":"<task-notification>\n<task-id>t1</task-id>\n<status>completed</status>\n<summary>Agent \"Fix redirect\" completed</summary>\n<result>The redirect loop is fixed and tested.</result>\n</task-notification>"}}
+{"type":"attachment","timestamp":"2026-01-10T10:28:01.500Z","attachment":{"type":"queued_command","prompt":"<task-notification>\n<task-id>t2</task-id>\n<status>failed</status>\n<summary>Shell \"npm test\" failed</summary>\n</task-notification>","commandMode":"task-notification","origin":{"kind":"task-notification"}}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-01-10T10:29:00.000Z","content":"2 background agents were stopped by the user: \"Tidy the docs\", \"Rename the flag\"."}
+{"type":"system","subtype":"agents_killed","timestamp":"2026-01-10T10:29:00.100Z"}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-01-10T10:29:30.000Z","content":"<agent-message from=\"reviewer\">Two findings on the redirect change.</agent-message>"}
+{"type":"user","timestamp":"2026-01-10T10:30:00.000Z","isMeta":true,"message":{"role":"user","content":"Stop hook feedback: [goal not met] the login fix is not merged yet"}}
+{"type":"user","timestamp":"2026-01-10T10:30:30.000Z","isMeta":true,"message":{"role":"user","content":"Goal check-in: «ship the login fix» is not met: the pull request is open"}}
+{"type":"user","timestamp":"2026-01-10T10:31:00.000Z","origin":{"kind":"task-notification"},"promptSource":"system","queueOrigin":{"kind":"task-notification","source":"goal-checkin"},"message":{"role":"user","content":"<task-notification>\n<summary>Goal check: still open</summary>\n</task-notification>"}}
+{"type":"user","timestamp":"2026-01-10T10:31:30.000Z","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}
+{"type":"user","timestamp":"2026-01-10T10:32:00.000Z","message":{"role":"user","content":"<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>sonnet</command-args>"}}
+{"type":"user","timestamp":"2026-01-10T10:32:01.000Z","message":{"role":"user","content":"<local-command-stdout>Set model to sonnet</local-command-stdout>"}}
+{"type":"user","timestamp":"2026-01-10T10:32:30.000Z","isMeta":true,"message":{"role":"user","content":"<system-reminder>The task list is empty.</system-reminder>"}}
+{"type":"user","timestamp":"2026-01-10T10:33:00.000Z","isMeta":true,"origin":{"kind":"peer","from":"peer-1"},"promptSource":"system","message":{"role":"user","content":"Another Claude session sent a message: the staging deploy is free now."}}
+{"type":"user","timestamp":"2026-01-10T10:33:30.000Z","message":{"role":"user","content":"Stop hook feedback: [older shape] keep going until the tests pass"}}
+{"type":"user","timestamp":"2026-01-10T10:34:00.000Z","message":{"role":"user","content":"3 background agents were stopped by the user: \"Draft notes\"."}}
+{"type":"user","timestamp":"2026-01-10T10:34:30.000Z","scheduledTaskId":"sched-1","message":{"role":"user","content":"run the nightly link check"}}
+{"type":"user","timestamp":"2026-01-10T10:35:00.000Z","origin":{"kind":"human"},"message":{"role":"user","content":"<command-message>flow:start is running…</command-message>\n<command-name>/flow:start</command-name>\n<command-args>the login epic</command-args>"}}
+{"type":"user","timestamp":"2026-01-10T10:36:00.000Z","message":{"role":"user","content":"<bash-input>git status</bash-input>"}}
+{"type":"user","timestamp":"2026-01-10T10:36:01.000Z","message":{"role":"user","content":"<bash-stdout>nothing to commit</bash-stdout><bash-stderr></bash-stderr>"}}
+{"type":"system","subtype":"compact_boundary","timestamp":"2026-01-10T10:40:00.000Z","compactMetadata":{"preTokens":180000,"trigger":"auto"}}
+{"type":"user","timestamp":"2026-01-10T10:40:01.000Z","isCompactSummary":true,"message":{"role":"user","content":"This session is being continued from a previous conversation that ran out of context."}}
+{"type":"assistant","timestamp":"2026-01-10T10:41:00.000Z","message":{"id":"msg_a4","model":"model-big","usage":{"input_tokens":5,"cache_read_input_tokens":15000,"cache_creation_input_tokens":5000,"output_tokens":50},"content":[{"type":"tool_use","id":"tu_6","name":"AskUserQuestion","input":{"questions":[{"question":"Release now or after review?"}]}}]}}
+{"type":"user","timestamp":"2026-01-10T10:42:00.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_6","content":"User answered: after review"}]}}
+{"type":"assistant","timestamp":"2026-01-10T10:43:00.000Z","message":{"id":"msg_a5","model":"model-big","usage":{"input_tokens":5,"cache_read_input_tokens":21000,"cache_creation_input_tokens":0,"output_tokens":40},"content":[{"type":"tool_use","id":"tu_7","name":"SendMessage","input":{"to":"reviewer","message":"Rebase on main before you look."}},{"type":"tool_use","id":"tu_8","name":"Bash","input":{"description":"Run tests","command":"npm test"}}]}}
+{"type":"user","timestamp":"2026-01-10T10:43:30.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_8","is_error":true,"content":"Exit code 1\n2 tests failed"}]}}
+{"type":"user","timestamp":"2026-01-10T10:44:00.000Z","toolDenialKind":"permission-rule","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_9","is_error":true,"content":"Permission to use Bash with command rm -rf build has been denied."}]}}
+{"type":"user","timestamp":"2026-01-10T10:44:30.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_10","is_error":true,"content":"The user doesn't want to proceed with this tool use. The tool use was rejected."}]}}
+{"type":"user","timestamp":"2026-01-10T10:45:00.000Z","isSidechain":true,"message":{"role":"user","content":"a line from inside an agent"}}
+{"type":"user","timestamp":"2026-01-10T10:45:30.000Z","message":{"role":"user","content":
+{"type":"attachment","timestamp":"2026-01-10T10:50:00.000Z","attachment":{"type":"queued_command","prompt":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}}],"commandMode":"prompt","origin":{"kind":"human"}}}
+{"type":"user","timestamp":"2026-01-10T11:00:00.000Z","origin":{"kind":"human"},"promptSource":"typed","message":{"role":"user","content":"status?"}}
+{"type":"user","timestamp":"2026-01-10T11:01:00.000Z","origin":{"kind":"human"},"promptSource":"typed","message":{"role":"user","content":"status?"}}
+{"type":"user","timestamp":"2026-01-10T11:05:00.000Z","message":{"role":"user","content":"looks good,\nmerge it"}}
+{"type":"system","subtype":"stop_hook_summary","timestamp":"2026-01-10T11:05:30.000Z","hookCount":1}
+{"type":"system","subtype":"compact_boundary","timestamp":"2026-01-10T11:30:00.000Z","compactMetadata":{"preTokens":175500,"trigger":"manual"}}
+{"type":"assistant","timestamp":"2026-01-10T11:31:00.000Z","message":{"id":"msg_a6","model":"model-big","usage":{"input_tokens":5,"cache_read_input_tokens":9000,"cache_creation_input_tokens":0,"output_tokens":30},"content":[{"type":"text","text":"Merged and released."}]}}
+{"type":"last-prompt","lastPrompt":"looks good"}
