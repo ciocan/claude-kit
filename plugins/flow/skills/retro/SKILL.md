@@ -21,6 +21,9 @@ of the tracker, so no duration in it could be used.
   writes a chronological digest for the evidence agent. `--user-messages` lists every message
   counted as the user's. A person reads that list before any authorisation is quoted from it.
   `--json` gives the counts for a table across sessions.
+- **Where the working files go.** The digest and the evidence file hold the user's words and
+  parts of the code. Write them to a scratch folder outside every repository, the session's own
+  scratch directory when it has one, and never to a shared `/tmp` path. They are not committed.
 - **Queued messages.** What the user types while the session is busy is stored as a queue
   record, not as a user message. A first digest that missed them lost 13 of 25 messages, among
   them every authorisation given that night. The script reads both. A message the user pulled
