@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for cited-paths.sh. Everything runs in a throwaway git repository in a temp dir.
+# Tests for cited-paths.py. Everything runs in a throwaway git repository in a temp dir.
 #
 #   tests/cited-paths.sh      run everything
 #
@@ -7,7 +7,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CP="$ROOT/plugins/flow/skills/grill-to-epic/scripts/cited-paths.sh"
+CP="$ROOT/plugins/flow/skills/grill-to-epic/scripts/cited-paths.py"
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
 PASS=0
@@ -48,7 +48,7 @@ Run `bun run test`, call `users.setLocale`, branch `feat/12-search`, see https:/
 `src/search.ts`
 EOF
 
-echo "cited-paths.sh on an issue body"
+echo "cited-paths.py on an issue body"
 out=$("$CP" base --repo "$R" "$T/issue.md" 2>&1); rc=$?
 expect_code "a record that no ref holds fails the check" 1 "$rc" "$out"
 expect_has "the untracked record is missing" "MISSING  docs/prd-search.md" "$out"
@@ -63,7 +63,7 @@ for skip in "bun run test" "users.setLocale" "feat/12-search" "example.com" "/et
   expect_not "not a path: $skip" "$skip" "$out"
 done
 
-echo "cited-paths.sh once the record is on the base"
+echo "cited-paths.py once the record is on the base"
 g add docs/prd-search.md; g commit -q -m "docs: the record"
 out=$("$CP" base --repo "$R" --path docs/prd-search.md 2>&1); rc=$?
 expect_code "an explicit path that is on the ref" 0 "$rc" "$out"
@@ -72,7 +72,7 @@ out=$("$CP" base --repo "$R" "$T/issue.md" 2>&1); rc=$?
 expect_code "only the file to be created is still missing" 1 "$rc" "$out"
 expect_has "the count went down" "6 cited, 1 missing on base" "$out"
 
-echo "cited-paths.sh inputs"
+echo "cited-paths.py inputs"
 out=$(printf 'Read `docs/prd-search.md` and `docs/nope.md`.\n' | "$CP" base --repo "$R" - 2>&1); rc=$?
 expect_code "stdin" 1 "$rc" "$out"
 expect_has "stdin: found" "OK       docs/prd-search.md" "$out"
@@ -87,7 +87,7 @@ out=$("$CP" base --repo "$R" --path "docs/a file with spaces.md" 2>&1); rc=$?
 expect_code "an explicit path is checked as given" 1 "$rc" "$out"
 expect_has "it is reported" "MISSING  docs/a file with spaces.md" "$out"
 
-echo "cited-paths.sh usage"
+echo "cited-paths.py usage"
 out=$("$CP" 2>&1); rc=$?
 expect_code "no ref is a usage error" 2 "$rc" "$out"
 out=$("$CP" base --repo "$R" 2>&1); rc=$?

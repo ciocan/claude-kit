@@ -96,8 +96,8 @@ what it must leave alone.
 
 A goal that outlasts a session gets a program note with a top block edited in place and a log
 that is rotated. The template, the log entry and the re-anchor checklist are in `long-haul`, with
-`note.sh`, which stamps each entry from the machine and rotates the log. Use it for a state note
-too once the log is long: `note.sh add <note> "<bullet>"`.
+`note.py`, which stamps each entry from the machine and rotates the log. Use it for a state note
+too once the log is long: `note.py add <note> "<bullet>"`.
 
 For a program that spans several repositories, also keep a ledger outside the memory directory:
 one folder per day, one line per merged PR. Reconcile it against

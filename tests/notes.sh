@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Tests for note.sh, the program note's log. Every note lives in a temp dir. Most tests pin the
-# clock with NOTE_NOW, which exists for tests only.
+# Tests for note.py, the program note's log. Every note lives in a temp dir. Most tests pin the
+# clock with NOTE_NOW, which exists for tests only. The guards that no outside fault can reach
+# are tested in tests/py/test_note.py, which this suite runs and counts.
 #
 #   tests/notes.sh            run everything
 #
@@ -8,7 +9,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NOTE="$ROOT/plugins/flow/skills/long-haul/scripts/note.sh"
+NOTE="$ROOT/plugins/flow/skills/long-haul/scripts/note.py"
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
 PASS=0
@@ -32,6 +33,16 @@ expect_same() { # name, file, file
 expect_eq() { # name, wanted, actual
   if [ "$2" = "$3" ]; then ok "$1"; else no "$1 (got '$3', wanted '$2')"; fi
 }
+py_suite() { # file under tests/py: run it and add its ok and FAIL lines to the counts
+  local out rc fails
+  out=$(python3 -B "$ROOT/tests/py/$1" 2>&1); rc=$?
+  printf '%s\n' "$out"
+  PASS=$((PASS + $(printf '%s\n' "$out" | grep -c '^  ok    ')))
+  fails=$(printf '%s\n' "$out" | grep -c '^  FAIL  ')
+  FAIL=$((FAIL + fails))
+  if [ "$rc" != 0 ] && [ "$fails" = 0 ]; then no "tests/py/$1 ran to the end (exit $rc)"; fi
+}
+mode_of() { python3 -B -c 'import os, sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "$1"; }
 
 STAMP_RE='^## [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} UTC$'
 first_entry() { grep -nE '^## [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} UTC' "$1" | head -n 1 | cut -d: -f1; }
@@ -59,7 +70,7 @@ EOF
 }
 TOPLEN=13
 
-echo "note.sh now and add"
+echo "note.py now and add"
 out=$("$NOTE" now); rc=$?
 expect_code "now succeeds" 0 "$rc" "$out"
 if [[ "## $out" =~ $STAMP_RE ]]; then ok "now prints yyyy-mm-dd hh:mm UTC"; else no "now prints yyyy-mm-dd hh:mm UTC" "$out"; fi
@@ -116,12 +127,12 @@ expect_same "a note without a final newline keeps its last line whole" "$T/want"
 mknote "$D/small.md"
 out=$(NOTE_MAX_LINES=5 NOTE_NOW="2026-11-21 13:00 UTC" "$NOTE" add "$D/small.md" "a" 2>"$T/err"); rc=$?
 expect_code "add over the limit still succeeds" 0 "$rc" "$out"
-expect_has "over the limit it warns" "the log is 9 lines, over 5. Rotate it: note.sh rotate $D/small.md --summary" "$(cat "$T/err")"
+expect_has "over the limit it warns" "the log is 9 lines, over 5. Rotate it: note.py rotate $D/small.md --summary" "$(cat "$T/err")"
 out=$(NOTE_MAX_LINES=300 NOTE_NOW="2026-11-21 14:00 UTC" "$NOTE" add "$D/small.md" "b" 2>"$T/err"); rc=$?
 expect_code "add under the limit succeeds" 0 "$rc" "$out"
 expect_eq "under the limit it does not warn" "" "$(cat "$T/err")"
 
-echo "note.sh check"
+echo "note.py check"
 D="$T/check"; mkdir -p "$D"; mknote "$D/goal-demo.md"
 out=$("$NOTE" check "$D/goal-demo.md"); rc=$?
 expect_code "check on a note in order" 0 "$rc" "$out"
@@ -146,7 +157,7 @@ out=$("$NOTE" check "$D/empty.md"); rc=$?
 expect_code "check on a note without a log" 0 "$rc" "$out"
 expect_has "it says there is no log" "no log entries" "$out"
 
-echo "note.sh rotate"
+echo "note.py rotate"
 D="$T/rot"; mkdir -p "$D"; mknote "$D/goal-demo.md"
 top_of "$D/goal-demo.md" >"$T/top.before"
 log_of "$D/goal-demo.md" >"$T/log.before"
@@ -219,7 +230,7 @@ expect_code "an unknown command is a usage error" 2 "$rc" "$out"
 out=$(NOTE_MAX_LINES=lots "$NOTE" check "$D/other.md" 2>&1); rc=$?
 expect_code "a non-numeric NOTE_MAX_LINES is a usage error" 2 "$rc" "$out"
 
-echo "note.sh writers at once"
+echo "note.py writers at once"
 # Two adds at once used to lose an entry while both reported success.
 R="$T/race"; mkdir -p "$R"
 lost=0; failed=0
@@ -235,42 +246,62 @@ expect_eq "and every one of them exits 0" 0 "$failed"
 expect_eq "the top block is still the first line" "top block" "$(head -n 1 "$R/n.md")"
 [ ! -e "$R/.n.md.lock" ] && ok "no lock is left behind" || no "no lock is left behind"
 
+# Another process holds the flock, the way a second note.py run would, and writes its pid.
 printf 'top block\n' >"$R/held.md"
-echo $$ >"$R/.held.md.lock"                                  # held by a live process: this test
+python3 -B -c '
+import fcntl, os, sys, time
+fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o600)
+fcntl.flock(fd, fcntl.LOCK_EX)
+os.write(fd, b"%d\n" % os.getpid())
+open(sys.argv[2], "w").close()
+time.sleep(60)' "$R/.held.md.lock" "$T/held.ready" &
+holder=$!
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -e "$T/held.ready" ] && break; sleep 0.1; done
 out=$(NOTE_LOCK_WAIT_S=1 "$NOTE" add "$R/held.md" "x" 2>&1); rc=$?
 expect_code "a held lock makes add fail" 1 "$rc" "$out"
-expect_has "it names the lock" "another writer holds" "$out"
+expect_has "it names the lock" "another writer holds $R/.held.md.lock" "$out"
+expect_has "it names the holder's pid" "(pid $holder)" "$out"
 expect_eq "the note is unchanged" "top block" "$(cat "$R/held.md")"
 [ -f "$R/.held.md.lock" ] && ok "the other writer's lock is not removed" || no "the other writer's lock is not removed"
-rm -f "$R/.held.md.lock"
+( sleep 0.5; kill "$holder" ) &
+out=$(NOTE_LOCK_WAIT_S=10 "$NOTE" add "$R/held.md" "after the wait" 2>&1); rc=$?
+wait
+expect_code "add waits while the lock is held, then lands" 0 "$rc" "$out"
+expect_has "the entry landed after the wait" "- after the wait" "$(cat "$R/held.md")"
 
+# A run killed with -9 leaves its lock file. The kernel dropped its flock, so the file is no lock.
 printf 'top block\n' >"$R/stale.md"
 ( : ) & dead=$!; wait "$dead"                                # a pid that no longer runs
 echo "$dead" >"$R/.stale.md.lock"
-out=$("$NOTE" add "$R/stale.md" "after a killed run" 2>&1); rc=$?
-expect_code "a lock left by a killed run is taken over" 0 "$rc" "$out"
+out=$(NOTE_LOCK_WAIT_S=1 "$NOTE" add "$R/stale.md" "after a killed run" 2>&1); rc=$?
+expect_code "a lock file left by a dead process does not block" 0 "$rc" "$out"
 expect_has "the entry landed" "- after a killed run" "$(cat "$R/stale.md")"
+[ ! -e "$R/.stale.md.lock" ] && ok "the leftover lock file is cleared" || no "the leftover lock file is cleared"
 
-echo "note.sh and a writer that takes no lock"
-# An editor that changes the note between the copy and the move must not be overwritten. The fake
-# cp copies, then appends a line to the original, the way a second writer would.
-F="$T/fakecp"; mkdir -p "$F"
-real_cp=$(command -v cp)
-cat >"$F/cp" <<EOF
-#!/usr/bin/env bash
-"$real_cp" "\$@" || exit 1
-for a in "\$@"; do src=\$prev; prev=\$a; done
-[ -n "\${FAKE_CP_TOUCH:-}" ] && [ "\$src" = "\$FAKE_CP_TOUCH" ] && echo "typed by an editor" >>"\$src"
-exit 0
-EOF
-chmod +x "$F/cp"
-printf 'top block\n' >"$R/edited.md"
-out=$(FAKE_CP_TOUCH="$R/edited.md" PATH="$F:$PATH" "$NOTE" add "$R/edited.md" "mine" 2>&1); rc=$?
-expect_code "add refuses when the note changed under it" 1 "$rc" "$out"
-expect_has "the editor's line survives" "typed by an editor" "$(cat "$R/edited.md")"
-expect_not "the entry was not written over it" "- mine" "$(cat "$R/edited.md")"
+echo "note.py and a writer that takes no lock"
+# An editor or a tool that appends without the lock must keep its lines. add once copied the note
+# and moved the copy over it, and a line appended in between was lost. Now add appends in place.
+printf 'top block\n' >"$R/shared.md"
+rm -f "$T/stop" "$T/outside.count"
+( i=0
+  while [ ! -e "$T/stop" ]; do i=$((i + 1)); echo "outside line $i" >>"$R/shared.md"; sleep 0.005; done
+  echo "$i" >"$T/outside.count" ) &
+writer=$!
+pids=(); failed=0
+for w in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  "$NOTE" add "$R/shared.md" "add $w" >/dev/null 2>&1 & pids+=($!)
+done
+for p in "${pids[@]}"; do wait "$p" || failed=$((failed + 1)); done
+touch "$T/stop"; wait "$writer"
+n=$(cat "$T/outside.count")
+missing=0
+for i in $(seq 1 "$n"); do grep -qx "outside line $i" "$R/shared.md" || missing=$((missing + 1)); done
+expect_eq "every line the outside writer appended is there ($n lines)" 0 "$missing"
+expect_eq "every one of twenty adds is there" 20 "$(grep -c '^- add [0-9]*$' "$R/shared.md")"
+expect_eq "twenty stamped headings" 20 "$(grep -cE "$STAMP_RE" "$R/shared.md")"
+expect_eq "and every add exits 0" 0 "$failed"
 
-echo "note.sh clock"
+echo "note.py clock"
 # The stamp is UTC whatever the zone of the caller. XXX-9 is nine hours ahead of UTC.
 a=$(date -u '+%Y-%m-%d %H:%M UTC'); got=$(TZ=XXX-9 "$NOTE" now); b=$(date -u '+%Y-%m-%d %H:%M UTC')
 if [ "$got" = "$a" ] || [ "$got" = "$b" ]; then ok "now is UTC under another time zone"; else no "now is UTC under another time zone (got '$got', wanted '$a')"; fi
@@ -279,18 +310,15 @@ out=$(TZ=XXX-9 "$NOTE" add "$R/tz.md" "zone check" 2>&1); b2=$(date -u '+%Y-%m-%
 h=$(grep '^## ' "$R/tz.md" | tail -n 1)
 if [ "$h" = "## $b" ] || [ "$h" = "## $b2" ]; then ok "add stamps in UTC under another time zone"; else no "add stamps in UTC under another time zone (got '$h')"; fi
 
-B="$T/badclock"; mkdir -p "$B"; printf '#!/bin/sh\nexit 1\n' >"$B/date"; chmod +x "$B/date"
+# A clock that fails is tested in tests/py/test_note.py.
 printf 'top block\n' >"$R/clock.md"
-out=$(PATH="$B:$PATH" "$NOTE" add "$R/clock.md" "x" 2>&1); rc=$?
-expect_code "a clock that fails stops add" 1 "$rc" "$out"
-expect_eq "nothing was written" "top block" "$(cat "$R/clock.md")"
 out=$(NOTE_NOW="yesterday" "$NOTE" add "$R/clock.md" "x" 2>&1); rc=$?
 expect_code "a stamp that is not a time stops add" 1 "$rc" "$out"
-expect_eq "nothing was written then either" "top block" "$(cat "$R/clock.md")"
+expect_eq "nothing was written" "top block" "$(cat "$R/clock.md")"
 out=$(NOTE_NOW="yesterday" "$NOTE" rotate "$R/clock.md" --summary s 2>&1); rc=$?
 expect_code "and stops rotate" 1 "$rc" "$out"
 
-echo "note.sh on a symlinked note"
+echo "note.py on a symlinked note"
 mkdir -p "$R/real" "$R/links"
 printf 'top block\n' >"$R/real/goal.md"
 ln -s ../real/goal.md "$R/links/goal.md"
@@ -302,6 +330,20 @@ out=$(NOTE_NOW="2026-03-01 11:00 UTC" "$NOTE" rotate "$R/links/goal.md" --summar
 expect_code "rotate through a symlink" 0 "$rc" "$out"
 [ -L "$R/links/goal.md" ] && ok "the link survives a rotate" || no "the link survives a rotate"
 [ -f "$R/real/goal-log-2026-03-01.md" ] && ok "the rotated log sits next to the target" || no "the rotated log sits next to the target" "$(ls "$R/real" "$R/links")"
+
+echo "note.py rotate and file modes"
+# The archive gets the note's own mode from the start. A private note once got a 0644 archive.
+M="$T/mode"; mkdir -p "$M"
+for m in 600 640 644; do
+  mknote "$M/n$m.md"; chmod "$m" "$M/n$m.md"
+  out=$(umask 022; NOTE_NOW="2026-11-22 16:00 UTC" "$NOTE" rotate "$M/n$m.md" --summary s --carry c 2>&1); rc=$?
+  expect_code "rotate a note with mode $m" 0 "$rc" "$out"
+  expect_eq "the archive of a $m note has mode $m" "$m" "$(mode_of "$M/n$m-log-2026-11-22.md")"
+  expect_eq "the rotated $m note keeps mode $m" "$m" "$(mode_of "$M/n$m.md")"
+done
+
+echo "note.py guards (tests/py/test_note.py)"
+py_suite test_note.py
 
 echo
 echo "$PASS passed, $FAIL failed"

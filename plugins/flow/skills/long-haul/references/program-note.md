@@ -59,7 +59,7 @@ description still says "running" a week after the goal was met sends the next se
 Append it with the script, one argument per bullet. The script writes the heading:
 
 ```sh
-note.sh add <note file> "Landed: #412 (#398), merge 1a2b3c4" "Next: review of #413"
+note.py add <note file> "Landed: #412 (#398), merge 1a2b3c4" "Next: review of #413"
 ```
 
 Write one at every merge, launch, hand-back, failure, and before every compaction. Before a
@@ -68,7 +68,7 @@ worktrees, each watcher and what it does when it fires, each chain with its resu
 
 ## Rules that keep the note readable
 
-- Times in UTC, in order, taken from the machine. `note.sh` does that. Never type a time. On one
+- Times in UTC, in order, taken from the machine. `note.py` does that. Never type a time. On one
   64-hour run the session wrote times from memory: the note ran up to 15 hours ahead of the
   tracker, went backwards three times, and no duration in it could be trusted.
 - Correct an earlier line with a `Correction` bullet in a new entry. Do not rewrite history, and
@@ -82,16 +82,16 @@ worktrees, each watcher and what it does when it fires, each chain with its resu
 ## Rotation
 
 Rotate when the log passes about 300 lines, when a phase ends, or once a day on a busy run.
-`note.sh add` warns at 300 lines. One note that relied on the rule alone reached 4,913.
+`note.py add` warns at 300 lines. One note that relied on the rule alone reached 4,913.
 
 1. Move the log to `goal-<slug>-log-<yyyy-mm-dd>.md`.
 2. In the main note leave five lines: what that period achieved, what it left open, the file name.
 3. Carry forward anything still live: running jobs, agents, holds, what the user owes.
 
-`note.sh rotate` does the three steps and leaves the top block untouched:
+`note.py rotate` does the three steps and leaves the top block untouched:
 
 ```sh
-note.sh rotate <note file> --summary "Phase 2 merged, 14 pull requests" \
+note.py rotate <note file> --summary "Phase 2 merged, 14 pull requests" \
   --summary "Open: the audit of #420" --carry "Running: reindex, log /abs/reindex.log"
 ```
 
@@ -118,7 +118,7 @@ Run this after every restart, resume or compaction, before anything else.
 9. Re-measure every claim about deployed state before you repeat it, and give the time you
    measured. "Five pull requests are not live on the dev backend" was told to a user for hours
    after it had stopped being true.
-10. Run `note.sh check`. Then write one "re-anchored" entry with `note.sh add`, and act.
+10. Run `note.py check`. Then write one "re-anchored" entry with `note.py add`, and act.
 
 The first briefs after a compaction need more care than the rest: re-read the decisions they rest
 on. In one run four of eleven context-loss incidents fell within two hours of a compaction, among

@@ -44,7 +44,7 @@ The checklist and the scripts are in [shared-resources.md](shared-resources.md).
   backend for 28 minutes. Run the check, read it, then push.
 - **A peer's unmerged branch on the shared backend means push the union or wait.** Pushing one
   tree removes what the other deployed. Two runs recorded eight or more such overwrites. Read the
-  claims first (`claims.sh check`).
+  claims first (`claims.py check`).
 - **Local sign-ins throttle CI.** An auth provider limits a dev instance as a whole. A verifier
   that created 21 users while two pull requests ran browser tests turned both red. Two local test
   batches in the 40 minutes before a push did it again.
@@ -62,12 +62,12 @@ The checklist and the scripts are in [shared-resources.md](shared-resources.md).
   shells outlived their task by three hours. Wait on a marker line in a log file.
 - **`mkdir` is not a lock on every machine.** Where coreutils is the Rust rewrite (uutils 0.10),
   two `mkdir` calls on one path at the same moment both exited 0 in 22 of 300 tries, and a lock
-  built on it let two writers in. Create the lock file from the shell with `set -C`, which opens
-  it exclusively, as `lock.sh` does.
+  built on it let two writers in. Open the lock file with `O_EXCL`, as `lock.py` does. In a shell
+  script, `set -C` before the redirect does the same.
 - **Never read and write the same file in one expression.** A helper opened a file for writing
   before it read it and blanked the bodies of 11 issues for 47 minutes. A verifier noticed, and
   they came back from the tracker's edit history. Build the new content in a second file, check
-  it, then move it. For issue checkboxes use `tick.sh` in `ship-pr`.
+  it, then move it. For issue checkboxes use `tick.py` in `ship-pr`.
 - **A gate piped into `tail` hides its failure.** The pipe returns tail's exit code. Write the
   output to a file and branch on `$?`.
 - **A backgrounded wait dies at the tool's time limit.** Long waits go in a script started with

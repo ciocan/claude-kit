@@ -73,7 +73,7 @@ the follow-up issue that took any scope left over. Closing keywords fire
 only on a merge into the default branch, so a repository that integrates on `dev` needs the close
 done by hand.
 
-Tick checkboxes in an issue or epic body with `scripts/tick.sh <issue> --match "<text>"` (also
+Tick checkboxes in an issue or epic body with `scripts/tick.py <issue> --match "<text>"` (also
 `--all`, `--line <n>`, `--dry-run`). The text must name one box, ticked or not, so a rerun never
 ticks a neighbour. It keeps a backup of the body, builds the edit in a second file, refuses a
 result that is empty or differs anywhere but the boxes, refuses when the body changed since it

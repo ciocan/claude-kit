@@ -90,5 +90,5 @@ merged, what is in flight, what you started and why, and what waits for the user
    or hosted backend, the auth provider, third-party sandboxes, env files, CI runners, ports and
    memory stay common. Isolate what can be isolated, put a guard on the rest, and write the result
    in the state note where briefs can quote it. The checklist, the guards that held and two
-   scripts (`lock.sh`, `claims.sh`) are in
+   scripts (`lock.py`, `claims.py`) are in
    [references/shared-resources.md](references/shared-resources.md).

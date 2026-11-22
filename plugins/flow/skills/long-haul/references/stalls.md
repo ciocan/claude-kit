@@ -31,9 +31,9 @@ From two later runs of 64 and 20 hours. Written rules were broken there. Scripts
 | Only the user's steps remained and the goal check fired every turn | 19 prompts in one night, dozens in another run | Word the goal to end where your part ends. One line, a long wake-up, no action |
 | A goal check was taken as leave to lift a hold | A merge the session had called the user's went in, with a defect that took 4 hours to find and fix | A hold told to the user is theirs to lift. The harness asking is not the user answering |
 | A general yes was read as covering a step the session had called the user's | A production step ran before the grant that named it | A yes that names the step. The grant note is written before the action |
-| Times in the note were typed from memory | Up to 15 hours off, backwards three times, closures logged up to 14 hours off | `note.sh add` stamps from the machine |
-| The log was never rotated | 4,913 lines, 393 KB | `note.sh` warns at 300 lines and rotates |
-| A message to a peer session was refused | The sessions overwrote each other's deployed code 8 or more times | The claims folder, `claims.sh` |
+| Times in the note were typed from memory | Up to 15 hours off, backwards three times, closures logged up to 14 hours off | `note.py add` stamps from the machine |
+| The log was never rotated | 4,913 lines, 393 KB | `note.py` warns at 300 lines and rotates |
+| A message to a peer session was refused | The sessions overwrote each other's deployed code 8 or more times | The claims folder, `claims.py` |
 | A claim about deployed state was repeated without measuring | A wrong status for hours | Re-measure, and give the time of the measurement |
 
 ## Long jobs

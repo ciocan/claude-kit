@@ -116,10 +116,10 @@ Five scripts ship in this skill's `scripts/` directory. Copy them into the repos
 `scripts/` or `tools/` folder, never the scratchpad) so they outlive the session and the plugin
 version. `tests/long-haul.sh` and `tests/notes.sh` in the kit's repository exercise them.
 
-**`note.sh add <note> "<bullet>"...`** appends a log entry to the program note under a heading
-stamped by `date -u`, and warns when the log passes 300 lines. **`note.sh rotate <note>
---summary "<line>" --carry "<line>"`** moves the log to its own file, leaves the summary and
-carries forward what is still live. **`note.sh check <note>`** reports the log's size and any
+**`note.py add <note> "<bullet>"...`** appends a log entry to the program note under a heading
+stamped in UTC from the machine's clock, and warns when the log passes 300 lines.
+**`note.py rotate <note> --summary "<line>" --carry "<line>"`** moves the log to its own file,
+leaves the summary and carries forward what is still live. **`note.py check <note>`** reports the log's size and any
 entry dated earlier than the one before it. Writers take a lock, so the orchestrator and a
 detached chain can both append. A run that cannot write exits 1.
 

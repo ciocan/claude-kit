@@ -69,8 +69,8 @@ review and verification runs passed it, and it stayed on the integration branch 
   recommendation, or carried in the first slice's pull request. In the second case every earlier
   brief quotes what it needs and gives the path of the worktree copy.
 - Before filing, and again before the first launch, check that the base holds what the issues
-  cite: `scripts/cited-paths.sh origin/<base> --path <record>`, or pipe an issue body into it
-  (`gh issue view <n> --json body -q .body | scripts/cited-paths.sh origin/<base> -`). A missing
+  cite: `scripts/cited-paths.py origin/<base> --path <record>`, or pipe an issue body into it
+  (`gh issue view <n> --json body -q .body | scripts/cited-paths.py origin/<base> -`). A missing
   path is fine only when the slice will create that file.
 
 If a `to-issues` skill is installed, use it for the slicing.

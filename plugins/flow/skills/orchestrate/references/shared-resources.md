@@ -47,17 +47,18 @@ machine" and its clock still ran 15 hours ahead. These held, most of them every 
 
 ## Two scripts
 
-They are in this skill's `scripts/` directory. Copy them into the repository so they outlive the
-plugin version. `tests/shared-resources.sh` in the kit's repository exercises both.
+They are in this skill's `scripts/` directory, in Python with the standard library only. Copy
+them into the repository so they outlive the plugin version. `tests/shared-resources.sh` in the
+kit's repository exercises both.
 
-**`lock.sh acquire|release|status <name>`** is a lock file that the shell creates exclusively.
-It is not built on `mkdir`: see the trap in `traps.md`. It records the owner label, the time and
+**`lock.py acquire|release|status <name>`** is a lock file opened with `O_EXCL`, so exactly one
+caller wins. It is not built on `mkdir`: see the trap in `traps.md`. It records the owner label, the time and
 a note. It never breaks a lock on its own, however old: it prints the owner
 and the age and exits 1, and a person decides. Each session passes a label of its own with
 `--owner` or `LOCK_OWNER`, because every command an agent runs is a new shell and a pid proves
 nothing.
 
-**`claims.sh claim|release|list|check <resource>`** keeps one small file per claim in a folder
+**`claims.py claim|release|list|check <resource>`** keeps one small file per claim in a folder
 outside every repository. A claim says "this session deployed this ref to that shared
 environment". `check` exits 1 when another session holds a claim there. A message from one
 session to another can be refused by the permission system. This folder is the channel that still
@@ -66,12 +67,12 @@ works, so it is the written agreement between sessions.
 A push to a shared backend, as separate commands:
 
 ```sh
-lock.sh acquire dev-backend --owner <label> --note "push for #<issue>" --wait 600
-claims.sh check dev-backend --owner <label>     # exit 1: someone else has code there
+lock.py acquire dev-backend --owner <label> --note "push for #<issue>" --wait 600
+claims.py check dev-backend --owner <label>     # exit 1: someone else has code there
 <the subset check>                              # read its output before the next line
 <the push, or the union push>
-claims.sh claim dev-backend "<branch>@<sha>" "<what is deployed>" --owner <label>
-lock.sh release dev-backend --owner <label>
+claims.py claim dev-backend "<branch>@<sha>" "<what is deployed>" --owner <label>
+lock.py release dev-backend --owner <label>
 ```
 
 Release the claim when the branch merges or its code is no longer deployed.

@@ -166,11 +166,12 @@ claude plugin validate .
 claude plugin validate plugins/flow
 claude plugin validate plugins/unslop
 tests/long-haul.sh          # detached runs, chains and the merge train, against a stub gh
-tests/shared-resources.sh  # lock.sh and claims.sh
-tests/notes.sh             # note.sh: stamped log entries, rotation
-tests/tick.sh              # tick.sh: issue checkboxes, against a stub gh
+tests/shared-resources.sh  # lock.py and claims.py
+tests/notes.sh             # note.py: stamped log entries, rotation
+tests/tick.sh              # tick.py: issue checkboxes, against a stub gh
 tests/retro.sh             # transcript-digest.py, against hand-written fixtures
-tests/cited-paths.sh       # cited-paths.sh: do the paths an issue cites exist on the base
+tests/cited-paths.sh       # cited-paths.py: do the paths an issue cites exist on the base
+tests/env-names.sh         # env-names.py: variable names of env files, never a value
 ```
 
 ## Releases

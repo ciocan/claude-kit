@@ -38,7 +38,7 @@ Waves: <A = ...; B = ... after ...>.
   Cleared: <worktrees, servers, containers>. Host: <disk free>.
 ```
 
-Take every stamp in the log from `date -u`, never from memory. `note.sh add` in `long-haul`
+Take every stamp in the log from `date -u`, never from memory. `note.py add` in `long-haul`
 writes the entry heading for you.
 
 ## Rule or grant note

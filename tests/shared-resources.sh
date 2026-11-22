@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for the orchestrate skill's shared-resource scripts, lock.sh and claims.sh. Everything runs
+# Tests for the orchestrate skill's shared-resource scripts, lock.py and claims.py. Everything runs
 # in a temp folder with HOME pointed into it, so the real state folder is never touched.
 #
 #   tests/shared-resources.sh     run everything
@@ -9,8 +9,8 @@ set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 S="$ROOT/plugins/flow/skills/orchestrate/scripts"
-L="${LOCK_SH:-$S/lock.sh}" # LOCK_SH points the suite at another copy, to show a test catches a fault
-C="$S/claims.sh"
+L="${LOCK_CMD:-$S/lock.py}" # LOCK_CMD points the suite at another copy, to show a test catches a fault
+C="$S/claims.py"
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
 PASS=0
@@ -46,7 +46,7 @@ export HOME="$T/home" LOCK_POLL_S=1
 mkdir -p "$HOME" "$T/work"
 cd "$T/work" || exit 1
 
-echo "lock.sh"
+echo "lock.py"
 D="$T/locks"
 
 out=$("$L" acquire db --owner alpha --note "schema change" --dir "$D" 2>&1); rc=$?
@@ -81,7 +81,7 @@ expect_file "the refused release left the lock" "$D/db.lock"
 out=$("$L" release db --owner alpha --dir "$D" 2>&1); rc=$?
 expect_code "release by the owner" 0 "$rc" "$out"
 expect_has "it prints RELEASED" "RELEASED db" "$out"
-expect_gone "the lock directory is gone" "$D/db.lock"
+expect_gone "the lock file is gone" "$D/db.lock"
 
 out=$("$L" status db --dir "$D" 2>&1); rc=$?
 expect_code "status of a free lock" 0 "$rc" "$out"
@@ -169,7 +169,7 @@ expect_file "XDG_STATE_HOME moves the folder" "$T/xdg/claude-kit/locks/x.lock"
 out=$(LOCK_DIR="$T/envlocks" "$L" acquire x --owner alpha 2>&1); rc=$?
 expect_file "LOCK_DIR moves the folder" "$T/envlocks/x.lock"
 
-echo "claims.sh"
+echo "claims.py"
 K="$T/claims"
 
 out=$("$C" claim api feat/a@abc123 "first deploy" --owner alpha --dir "$K" 2>&1); rc=$?
@@ -281,7 +281,7 @@ got=$(find "$HOME" -mindepth 1 | sort)
 got=$(find "$T/work" -mindepth 1)
 [ -z "$got" ] && ok "nothing was written in the working folder" || no "nothing was written in the working folder" "$got"
 
-echo "lock.sh --wait with a leading zero"
+echo "lock.py --wait with a leading zero"
 # 08 is not a valid octal number. It once broke the arithmetic and a free lock read as held.
 out=$("$L" acquire zero --owner alpha --wait 08 --dir "$D" 2>&1); rc=$?
 expect_code "--wait 08 on a free lock acquires it" 0 "$rc" "$out"
@@ -291,7 +291,7 @@ out=$(LOCK_POLL_S=1 "$L" acquire zero --owner beta --wait 01 --dir "$D" 2>&1); r
 expect_code "--wait 01 on a held lock gives up" 1 "$rc" "$out"
 expect_has "it waited one second, not zero or eight" "WAITED 1s for zero" "$out"
 
-echo "lock.sh under contention"
+echo "lock.py under contention"
 # Six workers take the lock in turn, each waiting for the one before. A lock built on mkdir let
 # two in at once here: with the Rust coreutils, two mkdir calls on one path can both exit 0.
 C="$T/contend"; mkdir -p "$C"

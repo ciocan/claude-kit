@@ -110,8 +110,8 @@ marks a lower bound summed from review reports. The 34 pull requests of run A ar
 carry the epic in their title. The session's own note counts 41, and 5 more in a second
 repository, which the rows above leave out. Both projects are private and are not named.
 
-The kit's response: `shared-resources.md` with `lock.sh` and `claims.sh`,
-`note.sh`, `tick.sh`, the failure-mode pass, the rules on who decides, and the `retro` skill.
+The kit's response: `shared-resources.md` with `lock.py` and `claims.py`,
+`note.py`, `tick.py`, the failure-mode pass, the rules on who decides, and the `retro` skill.
 
 ## How the way of working changed
 

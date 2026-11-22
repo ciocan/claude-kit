@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Tests for tick.sh. Nothing here touches GitHub: tick.sh runs against a stub `gh` that serves an
-# issue body from a file and stores what an edit sends.
+# Tests for tick.py. Nothing here touches GitHub: tick.py runs against a stub `gh` that serves an
+# issue body from a file as JSON and stores what an edit sends. The guards that no outside fault
+# can reach are tested in tests/py/test_tick.py, which this suite runs and counts.
 #
 #   tests/tick.sh             run everything
 #
@@ -8,7 +9,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TICK="$ROOT/plugins/flow/skills/ship-pr/scripts/tick.sh"
+TICK="$ROOT/plugins/flow/skills/ship-pr/scripts/tick.py"
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
 PASS=0
@@ -32,6 +33,15 @@ expect_same() { # name, file, file
 expect_eq() { # name, wanted, actual
   if [ "$2" = "$3" ]; then ok "$1"; else no "$1 (got '$3', wanted '$2')"; fi
 }
+py_suite() { # file under tests/py: run it and add its ok and FAIL lines to the counts
+  local out rc fails
+  out=$(python3 -B "$ROOT/tests/py/$1" 2>&1); rc=$?
+  printf '%s\n' "$out"
+  PASS=$((PASS + $(printf '%s\n' "$out" | grep -c '^  ok    ')))
+  fails=$(printf '%s\n' "$out" | grep -c '^  FAIL  ')
+  FAIL=$((FAIL + fails))
+  if [ "$rc" != 0 ] && [ "$fails" = 0 ]; then no "tests/py/$1 ran to the end (exit $rc)"; fi
+}
 
 G="$T/gh"; mkdir -p "$G/bin"
 cat >"$G/bin/gh" <<'STUB'
@@ -44,23 +54,30 @@ cat >"$G/bin/gh" <<'STUB'
 #   edit-fails   issue edit exits 1 and stores nothing
 #   peer-edit    a file whose content replaces the body just before the second view, the way
 #                another session's edit would land between the read and the write
+#   slow         issue view takes 0.3 seconds, so two runs at once overlap
 d=$GH_STUB
 echo "gh $*" >>"$d/calls"
-pos=(); bf=
+pos=(); bf= json= jq=
 while [ $# -gt 0 ]; do
   case $1 in
     --body-file) bf=$2; shift 2 ;;
-    --repo | -R | --json | -q | --jq) shift 2 ;;
+    --json) json=$2; shift 2 ;;
+    -q | --jq) jq=$2; shift 2 ;;
+    --repo | -R) shift 2 ;;
     *) pos+=("$1"); shift ;;
   esac
 done
+# Like `gh issue view --json body`: one JSON object, the body a string inside it.
+json_body() { python3 -B -c 'import json, sys; print(json.dumps({"body": sys.stdin.buffer.read().decode("utf-8")}))'; }
 case "${pos[0]:-}:${pos[1]:-}" in
   issue:view)
+    [ "$json" = body ] && [ -z "$jq" ] || { echo "stub gh: view wants --json body and no --jq: $*" >&2; exit 9; }
+    [ -f "$d/slow" ] && sleep 0.3
     [ -f "$d/view-fails" ] && { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
-    [ -f "$d/empty" ] && { echo; exit 0; }
+    [ -f "$d/empty" ] && { printf '' | json_body; exit 0; }
     n=$(( $(cat "$d/views" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$d/views"
     [ -f "$d/peer-edit" ] && [ "$n" -eq 2 ] && cp "$d/peer-edit" "$d/body"
-    cat "$d/body"; echo ;; # like gh -q .body: the string, then a newline
+    json_body <"$d/body" ;;
   issue:edit)
     [ -f "$d/edit-fails" ] && { echo "HTTP 422" >&2; exit 1; }
     if [ -f "$d/mangle" ]; then sed '1s/^/edited by a bot: /' "$bf" >"$d/body.new"; else cp "$bf" "$d/body.new"; fi
@@ -90,7 +107,7 @@ edits() { grep -c '^gh issue edit' "$GH_STUB/calls" 2>/dev/null || true; }
 body() { cat "$GH_STUB/body"; }
 line() { sed -n "$1p" "$GH_STUB/body"; }
 
-echo "tick.sh selection"
+echo "tick.py selection"
 fresh "$B1"
 out=$(tick 5 --all); rc=$?
 expect_code "--all ticks every unticked box" 0 "$rc" "$out"
@@ -179,7 +196,7 @@ expect_has "it says nothing was edited" "nothing edited" "$out"
 expect_eq "no edit call" 0 "$(edits)"
 expect_same "the body is unchanged" "$GH_STUB/served" <(body)
 
-echo "tick.sh bodies"
+echo "tick.py bodies"
 fresh "$B1"; touch "$GH_STUB/empty"
 out=$(tick 5 --all); rc=$?
 expect_code "an empty body is refused" 1 "$rc" "$out"
@@ -238,7 +255,7 @@ expect_code "nothing to tick" 0 "$rc" "$out"
 expect_has "it says so" "nothing to tick in #5" "$out"
 expect_eq "no edit call" 0 "$(edits)"
 
-echo "tick.sh after the edit"
+echo "tick.py after the edit"
 fresh "$B1"; touch "$GH_STUB/mangle"
 out=$(tick 5 --all); rc=$?
 expect_code "a read-back that differs exits 3" 3 "$rc" "$out"
@@ -265,23 +282,9 @@ out=$(tick 5 --all --backup-dir "$GH_STUB/elsewhere"); rc=$?
 expect_code "--backup-dir" 0 "$rc" "$out"
 expect_has "the backup goes there" "backup $GH_STUB/elsewhere/issue-5-" "$out"
 
-# The guard: an awk that cuts the last line off the body tick.sh builds, and passes every other
-# awk call through. tick.sh has no test hook; the fault comes from the PATH.
-REAL_AWK=$(command -v awk)
-mkdir -p "$T/fault"
-cat >"$T/fault/awk" <<EOF
-#!/usr/bin/env bash
-if [ -n "\${TICK_LINES:-}" ]; then "$REAL_AWK" "\$@" | sed '\$d'; else exec "$REAL_AWK" "\$@"; fi
-EOF
-chmod +x "$T/fault/awk"
-fresh "$B1"
-out=$(PATH="$T/fault:$PATH" "$TICK" 5 --all 2>&1); rc=$?
-expect_code "a shortened edited body is refused" 1 "$rc" "$out"
-expect_has "the line guard names it" "the edited body has 5 lines, the original 6" "$out"
-expect_eq "no edit call" 0 "$(edits)"
-expect_same "the body is unchanged" "$GH_STUB/served" <(body)
+# The guard on the edited body, with a shortened body among others, is in tests/py/test_tick.py.
 
-echo "tick.sh --match names one box"
+echo "tick.py --match names one box"
 # A rerun must not tick a different box. "#412" is ticked, "#4123" is open, and both hold the text.
 fresh '## Epic
 - [x] #412 parser
@@ -302,7 +305,7 @@ out=$(tick 5 --match "#4123"); rc=$?
 expect_code "a text that fits one box ticks it" 0 "$rc" "$out"
 expect_eq "#4123 is ticked" "- [x] #4123 docs" "$(line 3)"
 
-echo "tick.sh code fences, ordered and quoted items"
+echo "tick.py code fences, ordered and quoted items"
 fresh '## Plan
 - [ ] real one
 ```md
@@ -331,7 +334,7 @@ out=$(tick 5 --match "template line"); rc=$?
 expect_code "--match cannot reach into a fence" 1 "$rc" "$out"
 expect_has "it fits no box" "fits no box" "$out"
 
-echo "tick.sh and an edit by someone else"
+echo "tick.py and an edit by someone else"
 # A peer ticks another box between this run's read and its write. Writing the old body back
 # would undo it.
 fresh "$B1"
@@ -347,9 +350,9 @@ expect_code "the next run works from the new body" 0 "$rc" "$out"
 expect_eq "this run's box is ticked" "- [x] write the parser" "$(line 2)"
 expect_eq "the peer's box is still ticked" "- [x] ship the parser docs" "$(line 5)"
 
-echo "tick.sh line ends"
-# gh -q prints the body plus a line end of its own. The edit must not send that byte back, or the
-# stored body grows by one line end on every run.
+echo "tick.py line ends"
+# The body is read from JSON, byte for byte. gh -q, used before, printed a line end of its own
+# after the body, and an edit that sent it back would grow the stored body on every run.
 fresh "$B1"
 size0=$(wc -c <"$GH_STUB/body" | tr -d ' ')
 out=$(tick 5 --line 1); rc=$?
@@ -364,7 +367,7 @@ expect_code "a body with no final line end" 0 "$rc" "$out"
 expect_eq "it is stored without one" "- [x] one
 - [x] twoEND" "$(cat "$GH_STUB/body"; printf END)"
 
-echo "tick.sh usage"
+echo "tick.py usage"
 fresh "$B1"
 out=$(tick --all); rc=$?
 expect_code "no issue is a usage error" 2 "$rc" "$out"
@@ -377,6 +380,23 @@ expect_code "--line 0 is a usage error" 2 "$rc" "$out"
 out=$(tick 5 6 --all); rc=$?
 expect_code "two issues is a usage error" 2 "$rc" "$out"
 [ -f "$GH_STUB/calls" ] && no "usage errors make no gh call" "$(cat "$GH_STUB/calls")" || ok "usage errors make no gh call"
+
+echo "tick.py runs at once"
+# Two runs on one issue, each ticking its own box. Without the per-issue lock, the second run read
+# the body before the first one's edit, saw it change before its own edit, and refused.
+fresh "$B1"; touch "$GH_STUB/slow"
+( "$TICK" 5 --match "write the parser" >"$GH_STUB/run.1" 2>&1; echo $? >"$GH_STUB/run.1.rc" ) &
+( "$TICK" 5 --match "write the tests" >"$GH_STUB/run.2" 2>&1; echo $? >"$GH_STUB/run.2.rc" ) &
+wait
+expect_eq "the first run exits 0" 0 "$(cat "$GH_STUB/run.1.rc")"
+expect_eq "the second run exits 0" 0 "$(cat "$GH_STUB/run.2.rc")"
+expect_eq "the first run's box is ticked" "- [x] write the parser" "$(line 2)"
+expect_eq "the second run's box is ticked" "- [x] write the tests" "$(line 4)"
+expect_eq "two edit calls" 2 "$(edits)"
+expect_eq "two backups, no lock file left" 2 "$(ls -A "$TICK_BACKUP_DIR" | wc -l | tr -d ' ')"
+
+echo "tick.py guards (tests/py/test_tick.py)"
+py_suite test_tick.py
 
 echo
 echo "$PASS passed, $FAIL failed"
