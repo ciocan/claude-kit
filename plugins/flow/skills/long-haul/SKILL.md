@@ -33,8 +33,9 @@ One memory note per goal. Template: [references/program-note.md](references/prog
 
 - The top block is edited in place: status, goal, definition of done, grants, holds. A reader with
   no context learns the state from the first ten lines.
-- Below it sits a dated log, append only. Write entries with `scripts/note.py add`, which takes
-  the time from the machine. Never type a time. A clock kept from memory ran 15 hours ahead.
+- Below it sits a dated log, append only. Write entries with `${CLAUDE_SKILL_DIR}/scripts/note.py add`
+  (the script is in this skill's folder, not in the user's repository), which takes the time
+  from the machine. Never type a time. A clock kept from memory ran 15 hours ahead.
 - Rotate with `note.py rotate` when the log passes about 300 lines, or a phase ends: the log moves
   to its own file and five lines of summary stay. As a written rule this did not hold. One note
   reached 4,913 lines.
@@ -43,6 +44,8 @@ One memory note per goal. Template: [references/program-note.md](references/prog
 ## 3. Keeping going
 
 Mechanics, templates and scripts: [references/keeping-going.md](references/keeping-going.md).
+The scripts it names, `note.py`, `run-detached.sh`, `after.sh`, `chain.sh` and `merge-train.sh`,
+are in `${CLAUDE_SKILL_DIR}/scripts/`, this skill's folder.
 
 - Whatever must outlive the session runs detached and ends with a marker line that carries its
   exit code. Background commands and watchers started by the session die with it.

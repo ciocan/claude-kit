@@ -15,7 +15,8 @@ of the tracker, so no duration in it could be used.
 
 - **Transcripts.** One JSONL file per session under `~/.claude/projects/<path slug>/`. Find the
   sessions by date and size, and confirm each with the user.
-- **`scripts/transcript-digest.py <session.jsonl>`** prints the span, each compaction with its
+- **`${CLAUDE_SKILL_DIR}/scripts/transcript-digest.py <session.jsonl>`** (in this skill's
+  folder) prints the span, each compaction with its
   token count before it, agent launches by role and model, and the user's messages. `--out`
   writes a chronological digest for the evidence agent. `--user-messages` lists every message
   counted as the user's. A person reads that list before any authorisation is quoted from it.

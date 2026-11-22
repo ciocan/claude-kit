@@ -90,5 +90,8 @@ merged, what is in flight, what you started and why, and what waits for the user
    or hosted backend, the auth provider, third-party sandboxes, env files, CI runners, ports and
    memory stay common. Isolate what can be isolated, put a guard on the rest, and write the result
    in the state note where briefs can quote it. The checklist, the guards that held and two
-   scripts (`lock.py`, `claims.py`) are in
-   [references/shared-resources.md](references/shared-resources.md).
+   scripts are in
+   [references/shared-resources.md](references/shared-resources.md). The scripts themselves are
+   `${CLAUDE_SKILL_DIR}/scripts/lock.py` and `${CLAUDE_SKILL_DIR}/scripts/claims.py`, in this
+   skill's folder and not in the user's repository. An agent does not know that folder, so a
+   brief names the full path.

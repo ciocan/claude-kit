@@ -21,8 +21,9 @@ Run these together. Keep the raw output to yourself.
   tests, build)
 - `.github/workflows/`: is there CI, and which commands does it run
 - `gh issue list --limit 10`: is there a backlog to pick from
-- env file names and the variable names in them, never the values: `scripts/env-names.py`. Do
-  not grep the files. A quoted value can run over several lines, and a line grep prints pieces
+- env file names and the variable names in them, never the values:
+  `${CLAUDE_SKILL_DIR}/scripts/env-names.py`, run from the repository root. The script ships with
+  this skill, it is not in the user's repository. Do not grep the files. A quoted value can run over several lines, and a line grep prints pieces
   of it. Look for a database URL, a hosted backend deployment, auth keys, payment keys
 - this session's skill list: are `code-review` and a grilling skill installed
 

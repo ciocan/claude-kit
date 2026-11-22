@@ -73,9 +73,11 @@ the follow-up issue that took any scope left over. Closing keywords fire
 only on a merge into the default branch, so a repository that integrates on `dev` needs the close
 done by hand.
 
-Tick checkboxes in an issue or epic body with `scripts/tick.py <issue> --match "<text>"` (also
-`--all`, `--line <n>`, `--dry-run`). The text must name one box, ticked or not, so a rerun never
-ticks a neighbour. It keeps a backup of the body, sends the edit from memory, refuses a result
+Tick checkboxes in an issue or epic body with
+`${CLAUDE_SKILL_DIR}/scripts/tick.py <issue> --match "<text>" [--repo <owner/repo>]`
+(also `--all`, `--line <n>`, `--dry-run`). The script is in this skill's folder, not in the
+user's repository. The text must name one box, ticked or not, so a rerun never ticks a
+neighbour. It keeps a backup of the body, sends the edit from memory, refuses a result
 that is empty or differs anywhere but the boxes, refuses when the body changed since it was
 read, and reads the body back.
 Never edit an issue body with `sed` and `gh issue edit`, however small the change. A
