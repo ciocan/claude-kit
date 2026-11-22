@@ -70,19 +70,38 @@ A push to a shared backend, as separate commands:
 lock.py acquire dev-backend --owner <label> --note "push for #<issue>" --wait 600
 claims.py check dev-backend --owner <label>     # exit 1: someone else has code there
 <the subset check>                              # read its output before the next line
-<the push, or the union push>
+<the push>
 claims.py claim dev-backend "<branch>@<sha>" "<what is deployed>" --owner <label>
 lock.py release dev-backend --owner <label>
 ```
 
 Go from one line to the next only after exit 0.
 
-- The claims check exits with anything but 0, or the subset check or the push fails: release the
-  lock, then stop. Exit 1 means another session has code there. Exit 2 means the check itself
-  did not run, which is no licence to push.
+- The claims check exits with anything but 0, or the subset check fails: release the lock, then
+  stop. Nothing was pushed. Exit 1 means another session has code there. Exit 2 means the check
+  itself did not run, which is no licence to push.
+- The push fails. Release the lock only when you know it changed nothing, for example because
+  it was refused before it started. A push that failed part of the way, or whose answer was
+  lost, may have deployed some of the change: keep the lock, read what the backend runs now,
+  then record a claim for what is there or redeploy what was there before, and release after
+  that.
 - The push went through and the claim cannot be written: keep the lock and stop. Code is
   deployed that no claim records, and the next session to check would see nothing and overwrite
   it. Record the claim, then release.
+
+When the check says `OTHERS HOLD`, there are two ways on, and both start with the lock released:
+
+- Wait until the other session releases its claim, then run the sequence again.
+- Push the union. Build one ref that holds your work and every ref the check listed, for
+  example by merging them into your branch. Take the lock and run the check again. It still
+  exits 1, and that is expected this time. Go on only when it lists the same refs as before and
+  each one is an ancestor of the ref you push: `git merge-base --is-ancestor <their sha> <your
+  sha>` exits 0 for each. A ref that is new in the list, or one that is not an ancestor, sends
+  you back to the start. Then push, and claim the union ref with a note that names the refs it
+  holds. An exit 2 from the check stops the union push like any other push.
+
+An agent does not choose the union by itself. It stops and reports, and the orchestrator
+decides.
 
 `lock.py` never breaks a lock for age, so one left behind blocks every later push until a person
 runs `release --force`.

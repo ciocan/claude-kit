@@ -165,6 +165,25 @@ for piece in c2VjcmV0 secret d2l0aHNwYWNl "looks like"; do
   expect_not "no piece of a carried value after a # line: $piece" "$piece" "$out"
 done
 
+echo "env-names.py where the programs read a # differently"
+# After a blank and a carried line end, a shell reads "# comment" as a comment, so its quote
+# opens nothing and NEXT holds the value that runs over SECRET. A reading that takes the line as
+# value text sees the quote parity the other way round. Neither may get SECRET listed.
+printf 'FIRST=1\nTOKEN=prefix \\\n# comment"\nNEXT="first\nSECRET=payload\n"\n' >"$W/.env.join"
+out=$( cd "$W" && run .env.join ); rc=$?
+expect_has "names before the doubtful line are listed" ".env.join: FIRST TOKEN" "$out"
+for piece in SECRET payload; do
+  expect_not "nothing inside the value after the doubtful line: $piece" "$piece" "$out"
+done
+# A # right after the equals sign: a shell reads a value, a dotenv library may read a comment.
+printf 'A=1\nHASH=#"opens in a shell\nINSIDE=hidden\n"\nB=2\nCOLOR=#ff0000\nC=3\n' >"$W/.env.eqhash"
+out=$( cd "$W" && run .env.eqhash ); rc=$?
+expect_has "the names before it are listed" ".env.eqhash: A HASH" "$out"
+expect_not "the line inside the shell's value is not listed" "INSIDE" "$out"
+printf 'A=1\nCOLOR=#ff0000\nB=2\n' >"$W/.env.color"
+out=$( cd "$W" && run .env.color ); rc=$?
+expect_eq "a # value without a quote hides nothing" ".env.color: A COLOR B" "$out"
+
 mkdir -p "$T/none"
 out=$( cd "$T/none" && run ); rc=$?
 expect_code "no env file at all" 0 "$rc" "$out"

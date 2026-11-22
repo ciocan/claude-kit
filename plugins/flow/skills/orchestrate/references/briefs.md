@@ -36,10 +36,11 @@ You implement <issue ref> of <repo> (<stack>): <one sentence, the observable out
   do. [Or: you may push, in this order and as separate commands: `lock.py acquire <name>`,
   `claims.py check <name>`, <the subset check>, the push, `claims.py claim <name> <ref>`,
   `lock.py release <name>`. Go on only after exit 0. If the claims check exits with anything
-  else, or the subset check or the push fails, run `lock.py release <name>`, then stop and
-  report. If the push went through and `claims.py claim` fails, keep the lock, stop and report:
-  code is deployed that no claim records. The lock is never broken for age, so one left behind
-  blocks every later push until a person releases it.]
+  else, or the subset check fails, run `lock.py release <name>`, then stop and report: nothing
+  was pushed, and you do not push a union of your work and theirs by yourself. If the push
+  fails and may have changed the backend, or it went through and `claims.py claim` fails, keep
+  the lock, stop and report what you know about the backend's state. The lock is never broken
+  for age, so one left behind blocks every later push until a person releases it.]
   Make your own test user and organisation with <command>. Never use <the shared test account>
   for a hand check.
 - Before heavy runs check `free -g` and `uptime`. Wait while free memory is under <n> GB or load is

@@ -104,7 +104,7 @@ for ((i = 0; i < total; i++)); do
   done
 
   # 2. The state must be settled and mergeable. UNKNOWN means GitHub is still computing.
-  state= base= head= mergeable= draft=
+  state='' base='' head='' mergeable='' draft=''
   for ((t = 0; t < 20; t++)); do
     IFS=$'\t' read -r state base head mergeable draft < <(gh pr view "$pr" -R "$repo" \
       --json state,baseRefName,headRefOid,mergeable,isDraft \

@@ -79,7 +79,10 @@ Tick checkboxes in an issue or epic body with
 user's repository. The text must name one box, ticked or not, so a rerun never ticks a
 neighbour. It keeps a backup of the body, sends the edit from memory, refuses a result
 that is empty or differs anywhere but the boxes, refuses when the body changed since it was
-read, and reads the body back.
+read, and reads the body back. One gap stays open: GitHub has no conditional update, so an edit
+someone makes in the moment between the script's last read and its write is overwritten, and
+the read-back cannot show it. Where people edit an epic body by hand while agents tick it, agree
+on one writer.
 Never edit an issue body with `sed` and `gh issue edit`, however small the change. A
 hand-written helper once blanked 11 issue bodies, and a body read with `gh -q .body` or
 `gh api --jq .body` gains a line end on every round trip. `tests/tick.sh` in the kit's
