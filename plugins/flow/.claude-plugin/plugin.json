@@ -1,6 +1,6 @@
 {
   "name": "flow",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Workflow skills and agent definitions for running Claude Code as an orchestrator of implementer and verifier agents",
   "author": {
     "name": "Radu Ciocan"
