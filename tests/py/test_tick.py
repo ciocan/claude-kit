@@ -13,6 +13,7 @@ import importlib.util
 import io
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -165,18 +166,20 @@ def tests(tmp):
 
     # What a stop by INT or TERM prints: the restore command once the edit call has started.
     check('a stop before the edit prints nothing', tick.interrupted_message(None) is None)
-    message = tick.interrupted_message(tick.restore_lines('5', 'o/r', '/b/issue-5.before.md'))
+    message = tick.interrupted_message(tick.restore_lines('5', 'github.com/o/r',
+                                                          '/b/issue-5.before.md'))
     check('a stop during the edit prints the restore command',
-          message is not None and message.endswith('\n  gh issue edit 5 --repo o/r --body-file '
-                                                   '/b/issue-5.before.md'), message)
+          message is not None and message.endswith(
+              '\n  gh issue edit 5 --repo github.com/o/r --body-file /b/issue-5.before.md'),
+          message)
 
     # The restore command names the issue's repository, read from its url.
     for url, want in (
-            ('https://github.com/o/r/issues/5', 'o/r'),
-            ('https://GitHub.com/o/r/issues/5/', 'o/r'),
+            ('https://github.com/o/r/issues/5', 'github.com/o/r'),
+            ('https://GitHub.com/o/r/issues/5/', 'github.com/o/r'),
             ('https://ghe.example.com/team/app/issues/5', 'ghe.example.com/team/app'),
             ('https://ghe.example.com:8443/team/app/issues/5', 'ghe.example.com:8443/team/app'),
-            ('https://github.com/o/r/pull/5', 'o/r'),
+            ('https://github.com/o/r/pull/5', 'github.com/o/r'),
             ('https://github.com/o/r/issues/6', None),
             ('https://github.com/o/r', None),
             ('file:///o/r/issues/5', None),
@@ -185,19 +188,30 @@ def tests(tmp):
             (None, None)):
         got = tick.repo_from_url(url, '5')
         check('the repository from %r is %r' % (url, want), got == want, got)
-    check('a restore command without a repository says where to run it',
-          tick.restore_lines('5', None, '/b/x.before.md')
-          == 'Run it from a clone of the repository #5 belongs to: gh did not give the issue\'s '
-             'url and no --repo was passed, so the command holds no repository.\n'
-             '  gh issue edit 5 --body-file /b/x.before.md')
+    # Without a repository no runnable command is printed, only its shape with a placeholder.
+    unknown = tick.restore_lines('5', None, '/b/x.before.md')
+    lines = unknown.split('\n')
+    check('without a repository it says the repository is unknown and names the backup',
+          lines[0].startswith('The repository of #5 is unknown') and '/b/x.before.md' in lines[0],
+          unknown)
+    check('without a repository the last line is the shape with a placeholder',
+          lines[-1] == '  gh issue edit 5 --repo (REPOSITORY) --body-file /b/x.before.md', unknown)
+    check('without a repository no gh issue edit line lacks the placeholder',
+          all('(REPOSITORY)' in line for line in lines if line.startswith('  gh issue edit')),
+          unknown)
+    sh = shutil.which('sh')
+    if sh:
+        probe = subprocess.run([sh, '-n', '-c', lines[-1]], stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL)
+        check('sh refuses the shape as it stands', probe.returncode != 0, probe.returncode)
     check('a restore command quotes its parts',
-          tick.restore_lines('5', 'o/r', '/b/a b.before.md')
-          == "  gh issue edit 5 --repo o/r --body-file '/b/a b.before.md'")
+          tick.restore_lines('5', 'github.com/o/r', '/b/a b.before.md')
+          == "  gh issue edit 5 --repo github.com/o/r --body-file '/b/a b.before.md'")
 
     # On a read-back that differs, compare first, restore last.
     message = tick.mismatch_message('5', ['--- sent'], '/b/x.before.md', '/b/x.after.md',
                                     '/b/x.readback.md',
-                                    tick.restore_lines('5', 'o/r', '/b/x.before.md'))
+                                    tick.restore_lines('5', 'github.com/o/r', '/b/x.before.md'))
     lines = message.split('\n')
     compare = [i for i, line in enumerate(lines) if line.startswith('Compare the read-back')]
     last = [i for i, line in enumerate(lines) if line.startswith('Last resort')]
@@ -350,22 +364,22 @@ def wired(tmp):
     # gh vanishes after the last read: the edit cannot start, so nothing was sent. That is a
     # refusal before the edit, with a clear line and the same cleanup, not a traceback.
     open(os.path.join(world, 'calls'), 'w').close()
-    real_run = tick.subprocess.run
+    real_popen = subprocess.Popen
 
     def gone_at_edit(args, *rest, **kwargs):
         if args[:3] == ['gh', 'issue', 'edit']:
             raise FileNotFoundError(2, 'No such file or directory', 'gh')
-        return real_run(args, *rest, **kwargs)
+        return real_popen(args, *rest, **kwargs)
 
     os.environ['PATH'] = stub_dir + os.pathsep + os.environ.get('PATH', '')
     os.environ['GH_STUB'] = world
     os.environ['TICK_BACKUP_DIR'] = os.path.join(world, 'backups')
     os.environ['TICK_LOCK_DIR'] = os.path.join(world, 'locks')
-    tick.subprocess.run = gone_at_edit
+    subprocess.Popen = gone_at_edit
     try:
         code, out, err = run(['5', '--all'])
     finally:
-        tick.subprocess.run = real_run
+        subprocess.Popen = real_popen
         os.environ.clear()
         os.environ.update(saved_env)
     with open(os.path.join(world, 'body'), 'rb') as f:
@@ -378,6 +392,40 @@ def wired(tmp):
     left = (os.listdir(os.path.join(world, 'backups')), os.listdir(os.path.join(world, 'locks')))
     check('no backup or lock is left when gh cannot start', left == ([], []), left)
 
+    # gh has started, then writing the body to its stdin fails. The edit may have gone out, so
+    # this is not "nothing was sent": exit 3, the files kept, the restore block printed.
+    open(os.path.join(world, 'calls'), 'w').close()
+
+    class BrokenStdin(real_popen):
+        def communicate(self, input=None, timeout=None):
+            if list(self.args[:3]) == ['gh', 'issue', 'edit']:
+                raise BrokenPipeError(32, 'Broken pipe')
+            return real_popen.communicate(self, input, timeout)
+
+    os.environ['PATH'] = stub_dir + os.pathsep + os.environ.get('PATH', '')
+    os.environ['GH_STUB'] = world
+    os.environ['TICK_BACKUP_DIR'] = os.path.join(world, 'backups')
+    os.environ['TICK_LOCK_DIR'] = os.path.join(world, 'locks')
+    subprocess.Popen = BrokenStdin
+    try:
+        code, out, err = run(['5', '--all'])
+    finally:
+        subprocess.Popen = real_popen
+        os.environ.clear()
+        os.environ.update(saved_env)
+    kept = sorted(os.listdir(os.path.join(world, 'backups')))
+    check('a failure after gh started exits 3', code == 3, (code, err))
+    check('it does not say nothing was sent', b'nothing was sent' not in err, err)
+    check('it says the edit may have landed', b'the edit may have landed' in err, err)
+    check('the before and after files are kept',
+          [n.rsplit('.', 2)[-2] for n in kept] == ['after', 'before'], kept)
+    check('it prints the restore block', err.rstrip(b'\n').split(b'\n')[-1].startswith(
+        b'  gh issue edit 5 --repo github.com/o/r --body-file '), err)
+    check('no lock is left after a failure once gh started',
+          os.listdir(os.path.join(world, 'locks')) == [], os.listdir(os.path.join(world, 'locks')))
+    for name in kept:
+        os.unlink(os.path.join(world, 'backups', name))
+
     # The backup folder is renamed away and replaced after the check, just before the edit, by
     # someone who can write in its parent. The new folder holds their .after.md. gh must still get
     # the body tick.py built, and the planted folder must be left as it was.
@@ -386,7 +434,6 @@ def wired(tmp):
     open(os.path.join(world, 'calls'), 'w').close()
     backups = os.path.join(world, 'swapped')
     planted = b'- [x] planted by someone else\n'
-    real_run = tick.subprocess.run
     swapped = []
 
     def swap_then_run(args, *rest, **kwargs):
@@ -399,17 +446,17 @@ def wired(tmp):
                     with open(os.path.join(backups, after), 'wb') as f:
                         f.write(planted)
                     swapped.append(after)
-        return real_run(args, *rest, **kwargs)
+        return real_popen(args, *rest, **kwargs)
 
     os.environ['PATH'] = stub_dir + os.pathsep + os.environ.get('PATH', '')
     os.environ['GH_STUB'] = world
     os.environ['TICK_BACKUP_DIR'] = backups
     os.environ['TICK_LOCK_DIR'] = os.path.join(world, 'locks')
-    tick.subprocess.run = swap_then_run
+    subprocess.Popen = swap_then_run
     try:
         code, out, err = run(['5', '--all'])
     finally:
-        tick.subprocess.run = real_run
+        subprocess.Popen = real_popen
         os.environ.clear()
         os.environ.update(saved_env)
     with open(os.path.join(world, 'body'), 'rb') as f:

@@ -284,7 +284,7 @@ echo "tick.py after the edit"
 fresh "$B1"; touch "$GH_STUB/mangle"
 out=$(tick 5 --all); rc=$?
 expect_code "a read-back that differs exits 3" 3 "$rc" "$out"
-expect_has "it prints the restore command, pinned to the issue's repository" "gh issue edit 5 --repo o/r --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_has "it prints the restore command, pinned to the issue's host and repository" "gh issue edit 5 --repo github.com/o/r --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
 restore=$(printf '%s\n' "$out" | grep '^  gh issue edit' | sed 's/^  //')
 expect_has "the restore command points at the backup" ".before.md" "$restore"
 # Someone else's edit just after this one also makes the read-back differ. Restoring would remove
@@ -317,17 +317,25 @@ fresh "$B1"; touch "$GH_STUB/mangle"
 abs=$(cd "$GH_STUB" && pwd -P)
 out=$(cd "$GH_STUB" && "$TICK" 5 --all --backup-dir rel 2>&1); rc=$?
 expect_code "a relative backup folder, read-back differs" 3 "$rc" "$out"
-expect_has "the restore command carries an absolute path" "  gh issue edit 5 --repo o/r --body-file $abs/rel/issue-5-" "$out"
+expect_has "the restore command carries an absolute path" "  gh issue edit 5 --repo github.com/o/r --body-file $abs/rel/issue-5-" "$out"
 expect_has "the files are named by absolute paths" "after (what was sent):        $abs/rel/issue-5-" "$out"
 fresh "$B1"; touch "$GH_STUB/mangle" "$GH_STUB/no-url"
 out=$(tick 5 --all); rc=$?
 expect_code "no url from gh and no --repo" 3 "$rc" "$out"
-expect_has "it says where the command must run" "Run it from a clone of the repository #5 belongs to" "$out"
-expect_has "the command holds no repository then" "  gh issue edit 5 --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_has "it says the repository is unknown" "The repository of #5 is unknown" "$out"
+expect_has "it names the backup" "The backup is $TICK_BACKUP_DIR/issue-5-" "$out"
+runnable=$(printf '%s\n' "$out" | grep '^  gh issue edit' | grep -vF '(REPOSITORY)')
+expect_eq "no gh issue edit line can be run as it stands" "" "$runnable"
+expect_has "the shape of the command has the placeholder" "  gh issue edit 5 --repo (REPOSITORY) --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
 fresh "$B1"; touch "$GH_STUB/mangle" "$GH_STUB/no-url"
 out=$(tick 5 --all --repo given/repo); rc=$?
-expect_has "without a url the caller's --repo is used" "  gh issue edit 5 --repo given/repo --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
-expect_not "and no warning is printed" "Run it from a clone" "$out"
+expect_has "without a url the caller's --repo is printed as given" "  gh issue edit 5 --repo given/repo --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_not "and nothing says the repository is unknown" "is unknown" "$out"
+# gh resolves OWNER/REPO against its default host, which GH_HOST changes. The printed command
+# names the host from the url, so it reads the same whatever GH_HOST says.
+fresh "$B1"; touch "$GH_STUB/mangle"
+out=$(GH_HOST=ghe.example.invalid "$TICK" 5 --all 2>&1); rc=$?
+expect_has "with GH_HOST set elsewhere the command still names github.com" "  gh issue edit 5 --repo github.com/o/r --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
 
 # A gh that cannot be started is a refusal with a clear line, not a traceback. This one is
 # executable, so it is found, but its interpreter does not exist. gh vanishing just before the
@@ -614,7 +622,7 @@ for _ in $(seq 1 100); do [ -e "$GH_STUB/editing" ] && break; sleep 0.05; done
 kill -TERM "$pid"; wait "$pid"; rc=$?
 out=$(cat "$GH_STUB/run.out")
 expect_code "a TERM during the edit exits 130" 130 "$rc" "$out"
-expect_has "it prints the restore command" "  gh issue edit 5 --repo o/r --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_has "it prints the restore command" "  gh issue edit 5 --repo github.com/o/r --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
 expect_eq "the backup and the body sent are kept" 2 "$(ls "$TICK_BACKUP_DIR" | grep -cE '[.](before|after)[.]md$')"
 restore=$(printf '%s\n' "$out" | grep '^  gh issue edit' | sed 's/^  //')
 rm -f "$GH_STUB/edit-hangs"

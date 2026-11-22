@@ -66,19 +66,23 @@ check, by someone who can write in a parent, then neither receives this run's fi
 one of its own. The restore command printed on exit 3 or on a stop names the .before.md by its
 absolute path, for a person to run later: that path is trusted only as far as the folder is.
 Keep the backup folder where only you can write, its parents included. The command also names
-the issue's repository with --repo, read from the issue's url (owner/repo on github.com,
-host/owner/repo elsewhere), so it cannot land on another repository's issue of the same number.
-When gh gives no usable url and no --repo was passed, a line above the command says to run it
-from the issue's repository. On a read-back that differs, the message asks for a comparison of
-the read-back with the .after.md first: an edit by someone else just after this one looks the
-same, and the restore, which replaces the whole body, is the last resort for a damaged body.
+the issue's repository with --repo HOST/OWNER/REPO, read from the issue's url. The host is kept
+for github.com too: gh resolves OWNER/REPO against its default host, which GH_HOST can change by
+the time someone restores. So the command cannot land on another repository's issue of the same
+number, on this host or another. Without a usable url, the --repo the caller passed is printed
+as given. Without either, no command that runs as it stands is printed: the message names the
+backup and shows the command's shape with (REPOSITORY) in place of the repository, which sh,
+bash and zsh refuse to run until it is filled in. On a read-back that differs, the message asks
+for a comparison of the read-back with the .after.md first: an edit by someone else just after
+this one looks the same, and the restore, which replaces the whole body, is the last resort for
+a damaged body.
 
 Exit codes: 0 done or nothing to do, 1 refused by a guard or by the selection, another run
             holds the issue, or gh could not be started before the edit, 2 usage, 3 the body
-            read back differs from what was sent, or the edit failed and the body may have
-            changed, 130 stopped by INT or TERM (after the cleanup). Once the edit call has started, the
-            stop prints the restore command and keeps the backup and the .after.md file, since
-            the edit may have landed.
+            read back differs from what was sent, the edit failed and the body may have
+            changed, or the edit call broke off after gh started, 130 stopped by INT or TERM
+            (after the cleanup). Once the edit call has started, the stop prints the restore
+            command and keeps the backup and the .after.md file, since the edit may have landed.
 Env: TICK_BACKUP_DIR   backup dir when --backup-dir is not given
                        (default ${XDG_STATE_HOME:-$HOME/.local/state}/claude-kit/issue-bodies)
      TICK_LOCK_DIR     folder of the per-issue locks
@@ -324,8 +328,8 @@ REPO_PART_RE = re.compile(r'[A-Za-z0-9._-]+\Z')
 
 
 def repo_from_url(url, issue):
-    """The --repo value for the issue at url: owner/repo on github.com, host/owner/repo on
-    another host. None when the url is missing or is not the url of that issue."""
+    """The --repo value for the issue at url, always HOST/OWNER/REPO, so it does not depend on
+    gh's default host. None when the url is missing or is not the url of that issue."""
     if not url:
         return None
     parts = urllib.parse.urlsplit(url)
@@ -338,21 +342,27 @@ def repo_from_url(url, issue):
     host = parts.hostname.lower()
     if parts.port:
         host += ':%d' % parts.port
-    owner_repo = '%s/%s' % (path[0], path[1])
-    return owner_repo if host == 'github.com' else '%s/%s' % (host, owner_repo)
+    return '%s/%s/%s' % (host, path[0], path[1])
+
+
+# Stands where the repository goes when it is unknown. An unquoted "(" is a syntax error in sh
+# and bash, zsh finds no file to match it, and gh rejects it as a repository: the line cannot be
+# pasted and run against whatever repository the shell is in.
+UNKNOWN_REPO = '(REPOSITORY)'
 
 
 def restore_lines(issue, repo, before_path):
     """The command that puts the backup back, pinned to the issue's repository and to the
-    backup's absolute path. Without a repository it says where it must be run."""
-    lines = []
-    if not repo:
-        lines.append('Run it from a clone of the repository #%s belongs to: gh did not give the '
-                     "issue's url and no --repo was passed, so the command holds no repository."
-                     % issue)
-    lines.append('  gh issue edit %s%s --body-file %s' % (
-        issue, ' --repo ' + shlex.quote(repo) if repo else '', shlex.quote(before_path)))
-    return '\n'.join(lines)
+    backup's absolute path. The command is the last line. Without a repository, the last line is
+    the command's shape with a placeholder that no shell runs, after a sentence that says so."""
+    if repo:
+        return '  gh issue edit %s --repo %s --body-file %s' % (
+            issue, shlex.quote(repo), shlex.quote(before_path))
+    return ('The repository of #%s is unknown: gh gave no url for the issue and no --repo was '
+            'passed. The backup is %s. Below is the shape of the command, not a command: put the '
+            'issue\'s repository, as HOST/OWNER/REPO, in place of %s before you run it.\n'
+            '  gh issue edit %s --repo %s --body-file %s'
+            % (issue, before_path, UNKNOWN_REPO, issue, UNKNOWN_REPO, shlex.quote(before_path)))
 
 
 # The per-issue lock.
@@ -782,13 +792,31 @@ def tick(argv):
     # after the check cannot hand it a body of someone else's. The .after.md file is the record
     # of what was sent.
     try:
-        proc = subprocess.run(['gh', 'issue', 'edit', issue] + repo_args + ['--body-file', '-'],
-                              input=after, stdout=subprocess.DEVNULL)
+        proc = subprocess.Popen(['gh', 'issue', 'edit', issue] + repo_args + ['--body-file', '-'],
+                                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
     except OSError as e:
         # gh did not start, so nothing was sent: an ordinary refusal before the edit.
         Run.edited = False
         Run.restore = None
         refuse('cannot start gh for the edit (%s), so nothing was sent' % (e.strerror or e))
+    # gh has started. From here any failure leaves the outcome open: the edit may have gone out,
+    # or may still go out from a request already in flight.
+    try:
+        proc.communicate(after)
+    except BaseException as e:
+        # A stop by INT or TERM, or an OSError while the body went to gh's stdin. gh is stopped
+        # either way, as subprocess.run did, and the files are kept for the restore.
+        try:
+            proc.kill()
+            proc.wait()
+        except OSError:
+            pass
+        if not isinstance(e, OSError):
+            raise
+        raise Stop(3, 'tick.py: the edit call broke off after gh started (%s), so the edit may '
+                      'have landed or may still land. Check the body first. If it is damaged, '
+                      'this replaces the whole body with the backup:\n%s'
+                   % (e.strerror or e, restore))
     if proc.returncode != 0:
         back = fetch(issue, repo_args, quiet=True)
         if back == before:

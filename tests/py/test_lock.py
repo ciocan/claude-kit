@@ -130,6 +130,9 @@ def interleaved(lock, folder):
     for t in (a, b, c):
         t.join(STEP_S * 3)
     stuck = [t.name for t in (a, b, c) if t.is_alive()]
+    if stuck:
+        # A worker still running may yet change the lock: nothing read now would be a result.
+        return {'stuck': stuck}
     return {
         'codes': codes, 'owner': owner_of(os.path.join(folder, 'db.lock')),
         'a_paused': a_paused, 'a_timed_out': bool(a_timed_out),
@@ -190,8 +193,10 @@ def tests(script, tmp):
     check('the interleaving scenario finished in time', r is not None, why)
     if r is None:
         return
-    codes = r['codes']
     check('every worker stopped', r['stuck'] == [], r['stuck'])
+    if r['stuck']:
+        return      # the lock checks below would read a lock a worker may still change
+    codes = r['codes']
     check('release A reached its pause after the owner check', r['a_paused'], r)
     check('release B reached the mutex or finished while A was paused', r['b_reached'], r)
     check("beta's acquire reached the mutex or finished while A was paused", r['c_reached'], r)
