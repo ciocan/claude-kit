@@ -49,6 +49,7 @@ G="$T/gh"; mkdir -p "$G/bin"
 cat >"$G/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 # Canned GitHub issue. The body lives in $GH_STUB/body and every call is logged to $GH_STUB/calls.
+# An edit takes the body from --body-file <file>, or from stdin with --body-file -, as gh does.
 # Marker files in $GH_STUB change the behaviour:
 #   view-fails   issue view exits 1
 #   empty        issue view serves an empty body
@@ -85,7 +86,8 @@ case "${pos[0]:-}:${pos[1]:-}" in
     json_body <"$d/body" ;;
   issue:edit)
     [ -f "$d/edit-fails" ] && { echo "HTTP 422" >&2; exit 1; }
-    if [ -f "$d/mangle" ]; then sed '1s/^/edited by a bot: /' "$bf" >"$d/body.new"; else cp "$bf" "$d/body.new"; fi
+    if [ "$bf" = - ]; then cat >"$d/sent"; else cat -- "$bf" >"$d/sent"; fi || exit 1
+    if [ -f "$d/mangle" ]; then sed '1s/^/edited by a bot: /' "$d/sent" >"$d/body.new"; else cp "$d/sent" "$d/body.new"; fi
     mv "$d/body.new" "$d/body"
     [ -f "$d/edit-hangs" ] && { touch "$d/editing"; sleep 3; }
     echo "https://github.com/o/r/issues/${pos[2]}" ;;
@@ -123,6 +125,8 @@ expect_eq "box 3 ticked" "- [x] write the tests" "$(line 4)"
 expect_eq "box 4 ticked" "- [x] ship the parser docs" "$(line 5)"
 expect_eq "the non-box line is untouched" "Text with [ ] brackets that is not a box." "$(line 6)"
 expect_eq "one edit call" 1 "$(edits)"
+# gh gets the body on stdin, so it reads no path that could be swapped after the check.
+expect_has "the edit sends the body on stdin" "gh issue edit 5 --body-file -" "$(cat "$GH_STUB/calls")"
 backup=$(printf '%s\n' "$out" | sed -n 's/.*, backup //p')
 if [ -f "$backup" ]; then ok "the backup file exists"; else no "the backup file exists" "$out"; fi
 expect_same "the backup equals the body as stored" "$GH_STUB/served" "$backup"

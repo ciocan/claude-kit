@@ -130,8 +130,11 @@ def tests(tmp):
     check("a paused release does not remove the lock beta took meanwhile", owner == 'beta',
           'owner at the end: %r, exit codes: %r' % (owner, codes))
     check('beta was told it holds the lock', codes.get('acquire beta') == 0, codes)
-    check('both releases by alpha exit 0', codes.get('release A') == 0
-          and codes.get('release B') == 0, codes)
+    check('the paused release by alpha exits 0', codes.get('release A') == 0, codes)
+    # Release B and beta's acquire both wait for the mutex, in either order. B before beta finds
+    # the lock free (0). Beta before B finds beta's lock, which alpha may not release (1).
+    check('the second release by alpha finds the lock free or held by beta',
+          codes.get('release B') in (0, 1), codes)
     check('the mutex file stays after the calls', os.path.exists(os.path.join(folder, '.db.mutex')),
           sorted(os.listdir(folder)))
 

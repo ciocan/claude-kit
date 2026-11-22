@@ -31,11 +31,12 @@ every other byte survive.
 
 Saves the body as <backup-dir>/issue-<n>-<yyyymmddThhmmssZ>.before.md (-2, -3 when taken) and
 edits only when the edited body has the same lines and bytes and differs in nothing but the
-bracket character of the selected boxes. The edit is sent with `gh issue edit --body-file` from
-<stem>.after.md. After the edit it reads the body back and compares, and on a mismatch prints
-the command that restores the backup. No file is read and written at once: the body is held in
-memory, the backup and the edit file are each written once from bytes that passed the guards,
-and the read-back is compared in memory. A helper that read and wrote one file in one shell
+bracket character of the selected boxes. The edit is sent with `gh issue edit --body-file -`,
+the bytes on stdin from memory, so gh reads no file. <stem>.after.md keeps a copy of what was
+sent. After the edit it reads the body back and compares, and on a mismatch prints the command
+that restores the backup. No file is read and written at once: the body is held in memory, the
+backup and the record of the edit are each written once from bytes that passed the guards, and
+the read-back is compared in memory. A helper that read and wrote one file in one shell
 expression got an empty file to read, sent it up, and blanked eleven issue bodies.
 
 Two runs on one machine never interleave: each run holds an flock on
@@ -54,9 +55,16 @@ created with mode 0600 and the backup and lock folders, when this script creates
 0700: a private repository's issue body must not be readable by other users of the machine.
 Each file is created new, with O_EXCL and O_NOFOLLOW: a file or symlink already at the name is
 refused and left as it is, never written through or truncated. A backup or lock folder that
-belongs to another user, or that group or others can write in, is refused before any gh call,
-since another user could plant a symlink there at the name of the next .after.md. There is no
-override: give a private folder.
+belongs to another user, that group or others can write in, or that is itself a symlink, is
+refused before any gh call, since another user could plant a symlink there at the name of the
+next .after.md. There is no override: give a private folder.
+
+Each folder is opened once and checked on that descriptor, and every file in it is created and
+removed through the descriptor, never by its path. A folder renamed away and replaced after the
+check, by someone who can write in a parent, then neither receives this run's files nor supplies
+one of its own. The restore command printed on exit 3 or on a stop names the .before.md by its
+path, for a person to run later: that path is trusted only as far as the folder is. Keep the
+backup folder where only you can write, its parents included.
 
 Exit codes: 0 done or nothing to do, 1 refused by a guard or by the selection, or another run
             holds the issue, 2 usage, 3 the body read back differs from what was sent,
@@ -287,12 +295,13 @@ def fetch(issue, repo_args, quiet=False):
 
 # The per-issue lock.
 
-def take_lock(path, wait_s):
-    """Hold an flock on path, waiting up to wait_s seconds. Returns the descriptor."""
+def take_lock(dir_fd, name, path, wait_s):
+    """Hold an flock on the file name in the folder dir_fd, waiting up to wait_s seconds.
+    Returns the descriptor. path is the name to print."""
     deadline = time.monotonic() + wait_s
     while True:
         try:
-            fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+            fd = os.open(name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)
         except OSError as e:
             raise Stop(1, 'tick.py: cannot create the lock file %s: %s. Nothing was edited.'
                        % (path, e.strerror))
@@ -305,13 +314,14 @@ def take_lock(path, wait_s):
                            % (path, e.strerror))
             if time.monotonic() >= deadline:
                 raise Stop(1, 'tick.py: another writer holds %s (pid %s). Nothing was edited.'
-                           % (path, holder(path)))
+                           % (path, holder(dir_fd, name)))
             time.sleep(0.1)
             continue
         # The run before us removes the file before it lets go. If it did that after our open,
         # we hold a file nobody else will open: start again on the one at the path now.
         try:
-            same = os.path.samestat(os.fstat(fd), os.stat(path))
+            same = os.path.samestat(os.fstat(fd), os.stat(name, dir_fd=dir_fd,
+                                                          follow_symlinks=False))
         except OSError:
             same = False
         if not same:
@@ -325,10 +335,13 @@ def take_lock(path, wait_s):
         return fd
 
 
-def holder(path):
+def holder(dir_fd, name):
     try:
-        with open(path, 'rb') as f:
-            pid = f.read().strip().decode('ascii')
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+        try:
+            pid = os.read(fd, 64).strip().decode('ascii')
+        finally:
+            os.close(fd)
     except (OSError, UnicodeDecodeError):
         return 'unknown'
     return pid if pid.isdigit() else 'unknown'
@@ -336,8 +349,10 @@ def holder(path):
 
 class Run:
     """Files and the lock that cleanup handles when the run ends."""
-    lock = None     # (fd, path)
-    files = []      # the backup and its siblings, removed unless the edit went out
+    lock = None     # (folder descriptor, name, descriptor) of the held lock
+    files = []      # (folder descriptor, name) of the files this run created, removed unless
+                    # the edit went out
+    folders = []    # descriptors of the backup and lock folders, closed at the end
     edited = False
     restore = None  # the restore command, from the moment the edit call starts until it is safe
 
@@ -350,24 +365,27 @@ class Collision(Exception):
     """A file tick.py meant to create is already there."""
 
 
-def create_new(path):
-    """Create path for this run alone, mode 0600, and return its descriptor.
+def create_new(dir_fd, name):
+    """Create name in the folder dir_fd for this run alone, mode 0600, and return its descriptor.
 
+    The name is looked up in the folder that was opened and checked, not by its path, so a
+    folder renamed away and replaced afterwards neither receives the file nor supplies one.
     O_EXCL refuses a name that is taken and O_NOFOLLOW refuses a symlink, so a file planted at
     the name is never written through or truncated. Raises Collision when the name is taken.
     """
     try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600,
+                     dir_fd=dir_fd)
     except FileExistsError:
-        raise Collision(path)
-    Run.files.append(path)
+        raise Collision(name)
+    Run.files.append((dir_fd, name))
     os.fchmod(fd, 0o600)
     return fd
 
 
-def write_new(path, data):
+def write_new(dir_fd, name, data):
     """A new file only this user can read, holding data: a private issue body may be in it."""
-    fd = create_new(path)
+    fd = create_new(dir_fd, name)
     try:
         view = memoryview(data)
         while view:
@@ -376,13 +394,26 @@ def write_new(path, data):
         os.close(fd)
 
 
-def private_dir(path, what):
-    """Refuse a folder another user owns or can write in: they could plant a file at a name this
-    run is about to create, or read the bodies kept there."""
+def open_private_dir(path, what):
+    """Create the folder if needed (mode 0700), open it once and return the descriptor.
+
+    Everything after this goes through the descriptor. A folder another user owns or can write
+    in is refused: they could plant a file at a name this run is about to create, or read the
+    bodies kept there. The last component must not be a symlink.
+    """
     try:
-        st = os.stat(path)
+        os.makedirs(path, mode=0o700, exist_ok=True)
+    except OSError:
+        raise Stop(1, 'tick.py: cannot create %s' % path)
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     except OSError as e:
-        raise Stop(1, 'tick.py: cannot read the %s %s: %s' % (what, path, e.strerror))
+        if e.errno == errno.ELOOP or os.path.islink(path):
+            raise Stop(1, 'tick.py: refused: the %s %s is a symlink. Give the folder itself. '
+                          'Nothing was edited.' % (what, path))
+        raise Stop(1, 'tick.py: cannot open the %s %s: %s' % (what, path, e.strerror))
+    Run.folders.append(fd)
+    st = os.fstat(fd)
     if st.st_uid != os.geteuid():
         raise Stop(1, 'tick.py: refused: the %s %s belongs to another user. Use a folder of your '
                       'own. Nothing was edited.' % (what, path))
@@ -390,25 +421,30 @@ def private_dir(path, what):
         raise Stop(1, 'tick.py: refused: the %s %s is writable by other users (mode %03o). Make '
                       'it private (chmod go-w %s) or use another folder. Nothing was edited.'
                    % (what, path, st.st_mode & 0o777, shlex.quote(path)))
+    return fd
 
 
 def cleanup():
     mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
     try:
         if not Run.edited:
-            for path in Run.files:
+            for dir_fd, name in Run.files:
                 try:
-                    os.unlink(path)
+                    os.unlink(name, dir_fd=dir_fd)
                 except OSError:
                     pass
+        Run.files = []
         if Run.lock:
-            fd, path = Run.lock
+            dir_fd, name, fd = Run.lock
             Run.lock = None
             try:
-                os.unlink(path)
+                os.unlink(name, dir_fd=dir_fd)
             except OSError:
                 pass
             os.close(fd)
+        for fd in Run.folders:
+            os.close(fd)
+        Run.folders = []
     finally:
         signal.pthread_sigmask(signal.SIG_SETMASK, mask)
 
@@ -497,7 +533,7 @@ def parse(argv):
 
 
 def tick(argv):
-    Run.lock, Run.files, Run.edited, Run.restore = None, [], False, None
+    Run.lock, Run.files, Run.folders, Run.edited, Run.restore = None, [], [], False, None
     issue, repo, backup_dir, mode, untick, dry, matches, picks = parse(argv)
     if not shutil.which('gh'):
         raise Stop(2, 'tick.py: gh is required')
@@ -514,36 +550,31 @@ def tick(argv):
     bdir = backup_dir or os.environ.get('TICK_BACKUP_DIR') or state + '/claude-kit/issue-bodies'
     # The folders and files hold issue bodies, private ones among them: only this user reads
     # them. A folder that already exists keeps its mode.
-    try:
-        os.makedirs(bdir, mode=0o700, exist_ok=True)
-    except OSError:
-        raise Stop(1, 'tick.py: cannot create %s' % bdir)
-    private_dir(bdir, 'backup folder')
+    bfd = open_private_dir(bdir, 'backup folder')
     # The lock lives in its own folder. Under the backup folder, two runs given different
     # --backup-dir values took different locks and could overwrite each other's edit.
     ldir = os.environ.get('TICK_LOCK_DIR') or state + '/claude-kit/issue-locks'
-    try:
-        os.makedirs(ldir, mode=0o700, exist_ok=True)
-    except OSError:
-        raise Stop(1, 'tick.py: cannot create %s' % ldir)
-    private_dir(ldir, 'lock folder')
-    lock = '%s/issue-%s.lock' % (ldir, issue)
-    Run.lock = (take_lock(lock, float(wait)), lock)
+    lfd = open_private_dir(ldir, 'lock folder')
+    lock_name = 'issue-%s.lock' % issue
+    Run.lock = (lfd, lock_name, take_lock(lfd, lock_name, '%s/%s' % (ldir, lock_name),
+                                          float(wait)))
 
     stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
-    stem = '%s/issue-%s-%s' % (bdir, issue, stamp)
+    stem = 'issue-%s-%s' % (issue, stamp)
     k = 1
     while True:
         try:
-            fd = create_new(stem + '.before.md')
+            fd = create_new(bfd, stem + '.before.md')
             break
         except Collision:
             k += 1
-            stem = '%s/issue-%s-%s-%d' % (bdir, issue, stamp, k)
+            stem = 'issue-%s-%s-%d' % (issue, stamp, k)
         except OSError:
             raise Stop(1, 'tick.py: cannot write in %s' % bdir)
-    before_path, after_path, back_path = (stem + '.before.md', stem + '.after.md',
+    before_name, after_name, back_name = (stem + '.before.md', stem + '.after.md',
                                           stem + '.readback.md')
+    before_path, after_path, back_path = ('%s/%s' % (bdir, n)
+                                          for n in (before_name, after_name, back_name))
     restore = 'gh issue edit %s%s --body-file %s' % (
         issue, ' --repo ' + shlex.quote(repo) if repo else '', shlex.quote(before_path))
 
@@ -646,7 +677,7 @@ def tick(argv):
 
     # 7. Edit, then believe only what reads back.
     try:
-        write_new(after_path, after)
+        write_new(bfd, after_name, after)
     except Collision:
         refuse('%s is already there, and tick.py never writes through or over a file it did not '
                'create. Remove it if it is yours, then run again' % after_path)
@@ -654,8 +685,11 @@ def tick(argv):
     # From here a stop by INT or TERM prints the restore command: the edit may land even when gh
     # is killed halfway.
     Run.restore = restore
-    proc = subprocess.run(['gh', 'issue', 'edit', issue] + repo_args + ['--body-file', after_path],
-                          stdout=subprocess.DEVNULL)
+    # The body goes to gh on stdin, from memory. gh reads no path, so a backup folder swapped
+    # after the check cannot hand it a body of someone else's. The .after.md file is the record
+    # of what was sent.
+    proc = subprocess.run(['gh', 'issue', 'edit', issue] + repo_args + ['--body-file', '-'],
+                          input=after, stdout=subprocess.DEVNULL)
     if proc.returncode != 0:
         back = fetch(issue, repo_args, quiet=True)
         if back == before:
@@ -670,7 +704,7 @@ def tick(argv):
                       'needed with:\n  %s' % (issue, restore))
     if back != after:
         try:
-            write_new(back_path, back)
+            write_new(bfd, back_name, back)
             kept = back_path
         except (Collision, OSError):
             kept = '(not saved: %s was already there or could not be written)' % back_path
@@ -684,7 +718,7 @@ def tick(argv):
                    % (after_path, kept, restore))
     Run.restore = None
     try:
-        os.unlink(after_path)   # created by this run, as the read-back above confirmed
+        os.unlink(after_name, dir_fd=bfd)   # created by this run, in the folder it checked
     except OSError:
         pass
     out('%sed %d of %d boxes in #%s, backup %s' % (verb, len(selected), total, issue, before_path))

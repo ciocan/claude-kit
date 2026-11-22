@@ -157,6 +157,14 @@ for piece in c2VjcmV0 TAILPIECE LASTPIECE; do
   expect_not "no piece of a carried value: $piece" "$piece" "$out"
 done
 
+# A carried line that starts with a comment sign is still part of the value.
+printf 'TOKEN=prefix\\\n#secret\\\nc2VjcmV0==\nAFTER=2\nSPACED=one \\\n# looks like a comment\\\nd2l0aHNwYWNl==\nEND=3\n' >"$W/.env.hash"
+out=$( cd "$W" && run .env.hash ); rc=$?
+expect_eq "a carried line starting with # stays inside the value" ".env.hash: TOKEN AFTER SPACED END" "$out"
+for piece in c2VjcmV0 secret d2l0aHNwYWNl "looks like"; do
+  expect_not "no piece of a carried value after a # line: $piece" "$piece" "$out"
+done
+
 mkdir -p "$T/none"
 out=$( cd "$T/none" && run ); rc=$?
 expect_code "no env file at all" 0 "$rc" "$out"

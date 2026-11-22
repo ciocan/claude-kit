@@ -42,14 +42,16 @@ SEPARATOR = re.compile(r'[=:]')
 CONTINUES = 'continues'  # the value goes on to the next line: a backslash ended this one
 
 
-def scan(text, quote, escape_in_single):
+def scan(text, quote, escape_in_single, joined=False):
     """Walk through value text and say what is still open at its end.
 
     Returns the quote that is open, CONTINUES when an unquoted backslash ends the line, or None.
     quote is the quote already open when the text starts: a continuation line of a value.
     escape_in_single says whether a backslash escapes the next character inside single quotes.
+    joined says the text follows a line that ended in a backslash. It then sits right against
+    the text before it, so a # at its start is part of the value and not a comment.
     """
-    i, prev = 0, ' '
+    i, prev = 0, ('x' if joined else ' ')
     while i < len(text):
         ch = text[i]
         if quote:
@@ -76,7 +78,8 @@ def scan(text, quote, escape_in_single):
 def advance(quote, line, escape_in_single):
     """What one reading holds open after this line, given what it held open before it."""
     if quote == CONTINUES:
-        return scan(line, None, escape_in_single)  # the whole line is more of the value
+        # The whole line is more of the value, comment sign or not.
+        return scan(line, None, escape_in_single, joined=True)
     if quote:
         return scan(line, quote, escape_in_single)
     if not line.strip() or line.lstrip().startswith('#'):

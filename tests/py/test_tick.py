@@ -27,8 +27,8 @@ FAILED = 0
 B1 = (b'## Tasks\n- [ ] write the parser\n- [x] read the spec\n- [ ] write the tests\n'
       b'- [ ] ship the parser docs\nText with [ ] brackets that is not a box.\n')
 
-# A stub gh: view prints the body in $GH_STUB/body as JSON, edit stores the body file. Every call
-# is logged to $GH_STUB/calls.
+# A stub gh: view prints the body in $GH_STUB/body as JSON, edit stores the body it is given, from
+# a file or from stdin with --body-file -. Every call is logged to $GH_STUB/calls.
 STUB = r'''#!/usr/bin/env python3
 import json, os, shutil, sys
 d = os.environ['GH_STUB']
@@ -39,7 +39,14 @@ if args[:2] == ['issue', 'view']:
     with open(os.path.join(d, 'body'), 'rb') as f:
         print(json.dumps({'body': f.read().decode('utf-8')}))
 elif args[:2] == ['issue', 'edit']:
-    shutil.copyfile(args[args.index('--body-file') + 1], os.path.join(d, 'body'))
+    source = args[args.index('--body-file') + 1]
+    if source == '-':
+        data = sys.stdin.buffer.read()
+    else:
+        with open(source, 'rb') as f:
+            data = f.read()
+    with open(os.path.join(d, 'body'), 'wb') as f:
+        f.write(data)
 else:
     sys.exit(9)
 '''
@@ -208,8 +215,9 @@ def tests(tmp):
     link = os.path.join(files, 'issue-5.after.md')
     os.symlink(victim, link)
     tick.Run.files = []
+    files_fd = os.open(files, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        tick.write_new(link, b'body')
+        tick.write_new(files_fd, 'issue-5.after.md', b'body')
         check('write_new refuses a symlink at the name', False, 'it wrote')
     except tick.Collision:
         check('write_new refuses a symlink at the name', True)
@@ -218,14 +226,16 @@ def tests(tmp):
     check('the symlink stays a symlink', os.path.islink(link))
     check('a refused name is not marked for cleanup', tick.Run.files == [], tick.Run.files)
     try:
-        tick.write_new(victim, b'body')
+        tick.write_new(files_fd, 'victim', b'body')
         check('write_new refuses a file already at the name', False, 'it wrote')
     except tick.Collision:
         check('write_new refuses a file already at the name', True)
     fresh_path = os.path.join(files, 'new.after.md')
-    tick.write_new(fresh_path, b'body')
+    tick.write_new(files_fd, 'new.after.md', b'body')
     check('write_new creates a new file with mode 600',
           os.stat(fresh_path).st_mode & 0o777 == 0o600, oct(os.stat(fresh_path).st_mode))
+    os.close(files_fd)
+    tick.Run.files = []
 
     # Folders another user could write in are refused.
     for mode, refused in ((0o777, True), (0o770, True), (0o757, True), (0o755, False),
@@ -234,13 +244,28 @@ def tests(tmp):
         os.mkdir(folder)
         os.chmod(folder, mode)
         try:
-            tick.private_dir(folder, 'backup folder')
+            tick.open_private_dir(folder, 'backup folder')
             got = False
         except tick.Stop:
             got = True
         check('a folder with mode %o is %s' % (mode, 'refused' if refused else 'accepted'),
               got == refused)
+    link_dir = os.path.join(tmp, 'linked')
+    os.symlink(os.path.join(tmp, 'dir700'), link_dir)
+    try:
+        tick.open_private_dir(link_dir, 'backup folder')
+        check('a folder given as a symlink is refused', False)
+    except tick.Stop as e:
+        check('a folder given as a symlink is refused', 'is a symlink' in e.message, e.message)
+    for fd in tick.Run.folders:
+        os.close(fd)
+    tick.Run.folders = []
 
+    wired(tmp)
+
+
+def wired(tmp):
+    """Runs of tick.py's main against the stub gh."""
     # The guard is wired in: with an edit builder that drops the last line, tick.py refuses and
     # gh never gets an edit call.
     stub_dir = os.path.join(tmp, 'bin')
@@ -280,6 +305,55 @@ def tests(tmp):
     check('the body is unchanged', body == B1)
     check('no backup or lock is left', os.listdir(os.path.join(world, 'backups')) == [],
           os.listdir(os.path.join(world, 'backups')))
+
+    # The backup folder is renamed away and replaced after the check, just before the edit, by
+    # someone who can write in its parent. The new folder holds their .after.md. gh must still get
+    # the body tick.py built, and the planted folder must be left as it was.
+    with open(os.path.join(world, 'body'), 'wb') as f:
+        f.write(B1)
+    open(os.path.join(world, 'calls'), 'w').close()
+    backups = os.path.join(world, 'swapped')
+    planted = b'- [x] planted by someone else\n'
+    real_run = tick.subprocess.run
+    swapped = []
+
+    def swap_then_run(args, *rest, **kwargs):
+        if args[:3] == ['gh', 'issue', 'edit'] and not swapped:
+            os.rename(backups, backups + '.moved')
+            os.mkdir(backups, 0o700)
+            for name in os.listdir(backups + '.moved'):
+                if name.endswith('.before.md'):
+                    after = name[:-len('.before.md')] + '.after.md'
+                    with open(os.path.join(backups, after), 'wb') as f:
+                        f.write(planted)
+                    swapped.append(after)
+        return real_run(args, *rest, **kwargs)
+
+    os.environ['PATH'] = stub_dir + os.pathsep + os.environ.get('PATH', '')
+    os.environ['GH_STUB'] = world
+    os.environ['TICK_BACKUP_DIR'] = backups
+    os.environ['TICK_LOCK_DIR'] = os.path.join(world, 'locks')
+    tick.subprocess.run = swap_then_run
+    try:
+        code, out, err = run(['5', '--all'])
+    finally:
+        tick.subprocess.run = real_run
+        os.environ.clear()
+        os.environ.update(saved_env)
+    with open(os.path.join(world, 'body'), 'rb') as f:
+        body = f.read()
+    check('the folder was swapped before the edit', len(swapped) == 1, os.listdir(world))
+    check('gh gets the body tick.py built, not the planted one',
+          body == real_build(B1, [2, 4, 5], b'x'), body)
+    check('the run with a swapped folder succeeds', code == 0, (code, err))
+    left = sorted(os.listdir(backups))
+    check('the folder put in its place is left as it was', left == swapped, left)
+    if swapped:
+        with open(os.path.join(backups, swapped[0]), 'rb') as f:
+            check('the planted .after.md is untouched', f.read() == planted)
+    moved = sorted(os.listdir(backups + '.moved'))
+    check('the backup stays in the folder that was checked',
+          len(moved) == 1 and moved[0].endswith('.before.md'), moved)
 
 
 if __name__ == '__main__':
