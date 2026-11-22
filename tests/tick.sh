@@ -328,9 +328,20 @@ runnable=$(printf '%s\n' "$out" | grep '^  gh issue edit' | grep -vF '(REPOSITOR
 expect_eq "no gh issue edit line can be run as it stands" "" "$runnable"
 expect_has "the shape of the command has the placeholder" "  gh issue edit 5 --repo (REPOSITORY) --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
 fresh "$B1"; touch "$GH_STUB/mangle" "$GH_STUB/no-url"
+out=$(tick 5 --all --repo ghe.example.invalid/given/repo); rc=$?
+expect_has "without a url a --repo that names its host is printed as given" "  gh issue edit 5 --repo ghe.example.invalid/given/repo --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
+expect_not "and nothing says anything is unknown" "is unknown" "$out"
+# A --repo without a host would be resolved against gh's default host at restore time.
+fresh "$B1"; touch "$GH_STUB/mangle" "$GH_STUB/no-url"
 out=$(tick 5 --all --repo given/repo); rc=$?
-expect_has "without a url the caller's --repo is printed as given" "  gh issue edit 5 --repo given/repo --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
-expect_not "and nothing says the repository is unknown" "is unknown" "$out"
+expect_code "no url and a --repo without a host" 3 "$rc" "$out"
+expect_has "it says the host is unknown" "The host of #5 is unknown" "$out"
+runnable=$(printf '%s\n' "$out" | grep '^  gh issue edit' | grep -vF '(HOST)')
+expect_eq "no gh issue edit line can be run as it stands then either" "" "$runnable"
+expect_has "the shape keeps the repository and marks the host" "  gh issue edit 5 --repo (HOST)/given/repo --body-file $TICK_BACKUP_DIR/issue-5-" "$out"
+shape=$(printf '%s\n' "$out" | grep '^  gh issue edit')
+( gh() { echo RAN; }; eval "$shape" ) >"$T/shape.out" 2>&1
+expect_not "a shell refuses the shape with the host placeholder" "RAN" "$(cat "$T/shape.out")"
 # gh resolves OWNER/REPO against its default host, which GH_HOST changes. The printed command
 # names the host from the url, so it reads the same whatever GH_HOST says.
 fresh "$B1"; touch "$GH_STUB/mangle"

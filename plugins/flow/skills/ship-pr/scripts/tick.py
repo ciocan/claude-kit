@@ -69,10 +69,11 @@ Keep the backup folder where only you can write, its parents included. The comma
 the issue's repository with --repo HOST/OWNER/REPO, read from the issue's url. The host is kept
 for github.com too: gh resolves OWNER/REPO against its default host, which GH_HOST can change by
 the time someone restores. So the command cannot land on another repository's issue of the same
-number, on this host or another. Without a usable url, the --repo the caller passed is printed
-as given. Without either, no command that runs as it stands is printed: the message names the
-backup and shows the command's shape with (REPOSITORY) in place of the repository, which sh,
-bash and zsh refuse to run until it is filled in. On a read-back that differs, the message asks
+number, on this host or another. Without a usable url, the --repo the caller passed is used
+when it names its host (HOST/OWNER/REPO). When it does not, or when there is no --repo either,
+no command that runs as it stands is printed: the message names the backup and shows the
+command's shape with (HOST) or (REPOSITORY) in the place of what is unknown, which sh, bash and
+zsh refuse to run until it is filled in. On a read-back that differs, the message asks
 for a comparison of the read-back with the .after.md first: an edit by someone else just after
 this one looks the same, and the restore, which replaces the whole body, is the last resort for
 a damaged body.
@@ -349,15 +350,26 @@ def repo_from_url(url, issue):
 # and bash, zsh finds no file to match it, and gh rejects it as a repository: the line cannot be
 # pasted and run against whatever repository the shell is in.
 UNKNOWN_REPO = '(REPOSITORY)'
+UNKNOWN_HOST = '(HOST)'
 
 
 def restore_lines(issue, repo, before_path):
     """The command that puts the backup back, pinned to the issue's repository and to the
     backup's absolute path. The command is the last line. Without a repository, the last line is
     the command's shape with a placeholder that no shell runs, after a sentence that says so."""
-    if repo:
+    if repo and repo.count('/') >= 2:
         return '  gh issue edit %s --repo %s --body-file %s' % (
             issue, shlex.quote(repo), shlex.quote(before_path))
+    if repo:
+        # OWNER/REPO with no host: gh would resolve it against its default host at restore time,
+        # which GH_HOST can change by then. The host of this run is not known for certain either.
+        return ('The host of #%s is unknown: gh gave no url for the issue, and --repo %s names no '
+                'host. The backup is %s. Below is the shape of the command, not a command: put '
+                'the host the issue lives on, github.com unless you use another, in place of %s '
+                'before you run it.\n'
+                '  gh issue edit %s --repo %s/%s --body-file %s'
+                % (issue, repo, before_path, UNKNOWN_HOST, issue, UNKNOWN_HOST,
+                   shlex.quote(repo), shlex.quote(before_path)))
     return ('The repository of #%s is unknown: gh gave no url for the issue and no --repo was '
             'passed. The backup is %s. Below is the shape of the command, not a command: put the '
             'issue\'s repository, as HOST/OWNER/REPO, in place of %s before you run it.\n'

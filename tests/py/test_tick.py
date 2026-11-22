@@ -196,6 +196,14 @@ def tests(tmp):
           unknown)
     check('without a repository the last line is the shape with a placeholder',
           lines[-1] == '  gh issue edit 5 --repo (REPOSITORY) --body-file /b/x.before.md', unknown)
+    hostless = tick.restore_lines('5', 'o/r', '/b/x.before.md').split('\n')
+    check('a repository without a host gives the shape with a host placeholder',
+          hostless[0].startswith('The host of #5 is unknown')
+          and hostless[-1] == '  gh issue edit 5 --repo (HOST)/o/r --body-file /b/x.before.md',
+          hostless)
+    check('a repository that names its host gives the command',
+          tick.restore_lines('5', 'ghe.example.invalid/o/r', '/b/x.before.md')
+          == '  gh issue edit 5 --repo ghe.example.invalid/o/r --body-file /b/x.before.md')
     check('without a repository no gh issue edit line lacks the placeholder',
           all('(REPOSITORY)' in line for line in lines if line.startswith('  gh issue edit')),
           unknown)
