@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: Run the main session as an orchestrator that sends implementer and verifier subagents through the loop from issue to merged PR (worktree, build, review, smoke test, PR, merge, close) and keeps agent slots full. Use when the user says "deploy an agent", "deploy agents", "same machinery", "you're the orchestrator", "you manage everything from here", "work with subagents", or asks to work an epic, a wave or a list of issues.
+description: Run the main session as an orchestrator that sends implementer and verifier subagents through the loop from issue to merged PR (worktree, build, review, smoke test, PR, merge, close) and keeps agent slots full. Use when the user says "deploy an agent", "deploy agents", "same machinery", "you're the orchestrator", "you manage everything from here", "work with subagents", or asks to work an epic, a wave or a list of issues, and when the user asks "what do the worktrees share?", "do the agents need their own database?" or why agents or sessions keep breaking each other's dev environment.
 ---
 
 # Orchestrate
